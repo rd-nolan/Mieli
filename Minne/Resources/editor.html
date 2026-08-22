@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Minne Editor</title>
+  <!--
+    Minne Markdown editor host page (T060 container) + Milkdown WYSIWYG (T061).
+    AGENTS §8: Markdown is the single source of truth — the frontend serializes
+    the editor back to Markdown for storage (see frontend/src/index.js).
+
+    Swift drives this page through the EditorBridge (AGENTS §16); all calls go
+    through window.minneEditor, never loose evaluateJavaScript.
+  -->
+  <link rel="stylesheet" href="editor.bundle.css">
+  <style>
+    body {
+      margin: 0;
+      padding: 24px 32px;
+      font-family: -apple-system, system-ui, "Helvetica Neue", sans-serif;
+    }
+    #editor {
+      max-width: 760px;
+      margin: 0 auto;
+      min-height: 70vh;
+    }
+  </style>
+</head>
+<body>
+  <!-- Milkdown mounts editor into rootCtx target.#editor. -->
+  <div id="editor"></div>
+  <script src="editor.bundle.js"></script>
+</body>
+</html>

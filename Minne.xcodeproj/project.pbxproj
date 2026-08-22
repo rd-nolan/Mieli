@@ -1,0 +1,672 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0A1000000000000000000001 /* MinneApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1000000000000000000011 /* MinneApp.swift */; };
+		0A1000000000000000000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1000000000000000000012 /* ContentView.swift */; };
+		0A1000000000000000000004 /* WorkspaceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1000000000000000000014 /* WorkspaceManager.swift */; };
+		0A1000000000000000000005 /* WorkspaceBookmarkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1000000000000000000015 /* WorkspaceBookmarkTests.swift */; };
+		0A1000000000000000000006 /* WorkspaceItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1000000000000000000016 /* WorkspaceItem.swift */; };
+		0A1000000000000000000007 /* WorkspaceScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1000000000000000000017 /* WorkspaceScanner.swift */; };
+		0A1000000000000000000134 /* WorkspaceWatcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1000000000000000000135 /* WorkspaceWatcherTests.swift */; };
+		0A1000000000000000000132 /* WorkspaceWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1000000000000000000133 /* WorkspaceWatcher.swift */; };
+		0A1000000000000000000008 /* WorkspaceScannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1000000000000000000018 /* WorkspaceScannerTests.swift */; };
+		0A1000000000000000000009 /* WorkspaceCreateFolderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1000000000000000000019 /* WorkspaceCreateFolderTests.swift */; };
+		0A100000000000000000000A /* WorkspaceCreateNoteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A100000000000000000001A /* WorkspaceCreateNoteTests.swift */; };
+		0A100000000000000000000B /* WorkspaceRenameFolderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A100000000000000000001B /* WorkspaceRenameFolderTests.swift */; };
+		0A100000000000000000000C /* WorkspaceRenameNoteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A100000000000000000001C /* WorkspaceRenameNoteTests.swift */; };
+		0A100000000000000000000D /* WorkspaceMoveNoteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A100000000000000000001D /* WorkspaceMoveNoteTests.swift */; };
+		0A100000000000000000000E /* WorkspaceDeleteNoteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A100000000000000000001E /* WorkspaceDeleteNoteTests.swift */; };
+		0A100000000000000000000F /* WorkspaceDeleteFolderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A100000000000000000001F /* WorkspaceDeleteFolderTests.swift */; };
+		0A10000000000000000000A0 /* WorkspaceReadNoteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A10000000000000000000A1 /* WorkspaceReadNoteTests.swift */; };
+		0A1000000000000000000010 /* FileService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1000000000000000000022 /* FileService.swift */; };
+		0A1000000000000000000130 /* AttachmentService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1000000000000000000131 /* AttachmentService.swift */; };
+		0A1000000000000000000024 /* FileServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1000000000000000000023 /* FileServiceTests.swift */; };
+		0A1000000000000000000026 /* FrontMatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1000000000000000000025 /* FrontMatter.swift */; };
+		0A1000000000000000000028 /* FrontMatterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1000000000000000000027 /* FrontMatterTests.swift */; };
+		0A100000000000000000002B /* ULID.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1000000000000000000029 /* ULID.swift */; };
+		0A100000000000000000002C /* NoteIDTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A100000000000000000002A /* NoteIDTests.swift */; };
+		0A100000000000000000002F /* NoteMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A100000000000000000002D /* NoteMetadata.swift */; };
+		0A100000000000000000003F /* NoteMetadataTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A100000000000000000002E /* NoteMetadataTests.swift */; };
+		0A1000000000000000000037 /* NoteTitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1000000000000000000036 /* NoteTitle.swift */; };
+		0A1000000000000000000039 /* NoteTitleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1000000000000000000038 /* NoteTitleTests.swift */; };
+		0A10000000000000000000D6 /* NoteTags.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A10000000000000000000D5 /* NoteTags.swift */; };
+		0A10000000000000000000D8 /* NoteTagsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A10000000000000000000D7 /* NoteTagsTests.swift */; };
+		0A10000000000000000000DA /* PlainText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A10000000000000000000D9 /* PlainText.swift */; };
+		0A10000000000000000000DC /* PlainTextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A10000000000000000000DB /* PlainTextTests.swift */; };
+		0A10000000000000000000E5 /* DatabaseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A10000000000000000000E4 /* DatabaseManager.swift */; };
+		0A10000000000000000000E7 /* DatabaseManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A10000000000000000000E6 /* DatabaseManagerTests.swift */; };
+		0A10000000000000000000EC /* Schema.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A10000000000000000000EB /* Schema.swift */; };
+		0A10000000000000000000EE /* NotesSchemaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A10000000000000000000ED /* NotesSchemaTests.swift */; };
+		0A10000000000000000000F3 /* TagsSchemaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A10000000000000000000F2 /* TagsSchemaTests.swift */; };
+		0A10000000000000000000F8 /* FTSSchemaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A10000000000000000000F7 /* FTSSchemaTests.swift */; };
+		0A1000000000000000000103 /* ParsedNote.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1000000000000000000102 /* ParsedNote.swift */; };
+		0A1000000000000000000105 /* IndexService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1000000000000000000104 /* IndexService.swift */; };
+		0A100000000000000000010A /* IndexRebuild.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1000000000000000000109 /* IndexRebuild.swift */; };
+		0A100000000000000000010C /* IndexUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A100000000000000000010B /* IndexUpdater.swift */; };
+		0A100000000000000000010F /* SearchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A100000000000000000010E /* SearchService.swift */; };
+		0A1000000000000000000107 /* IndexServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1000000000000000000106 /* IndexServiceTests.swift */; };
+		0A1000000000000000000111 /* SearchServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1000000000000000000110 /* SearchServiceTests.swift */; };
+		0A1000000000000000000003 /* Info.plist in Sources */ = {isa = PBXBuildFile; fileRef = 0A1000000000000000000013 /* Info.plist */; };
+		0A1000000000000000000113 /* MarkdownEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1000000000000000000112 /* MarkdownEditorView.swift */; };
+		0A1000000000000000000115 /* editor.html in Resources */ = {isa = PBXBuildFile; fileRef = 0A1000000000000000000114 /* editor.html */; };
+		0A1000000000000000000118 /* editor.bundle.js in Resources */ = {isa = PBXBuildFile; fileRef = 0A1000000000000000000117 /* editor.bundle.js */; };
+		0A100000000000000000011A /* editor.bundle.css in Resources */ = {isa = PBXBuildFile; fileRef = 0A1000000000000000000119 /* editor.bundle.css */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		0A1000000000000000000011 /* MinneApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MinneApp.swift; sourceTree = "<group>"; };
+		0A1000000000000000000012 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		0A1000000000000000000013 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		0A1000000000000000000014 /* WorkspaceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceManager.swift; sourceTree = "<group>"; };
+		0A1000000000000000000015 /* WorkspaceBookmarkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceBookmarkTests.swift; sourceTree = "<group>"; };
+		0A1000000000000000000016 /* WorkspaceItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceItem.swift; sourceTree = "<group>"; };
+		0A1000000000000000000017 /* WorkspaceScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceScanner.swift; sourceTree = "<group>"; };
+		0A1000000000000000000133 /* WorkspaceWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceWatcher.swift; sourceTree = "<group>"; };
+		0A1000000000000000000018 /* WorkspaceScannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceScannerTests.swift; sourceTree = "<group>"; };
+		0A1000000000000000000135 /* WorkspaceWatcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceWatcherTests.swift; sourceTree = "<group>"; };
+		0A1000000000000000000019 /* WorkspaceCreateFolderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCreateFolderTests.swift; sourceTree = "<group>"; };
+		0A100000000000000000001A /* WorkspaceCreateNoteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCreateNoteTests.swift; sourceTree = "<group>"; };
+		0A100000000000000000001B /* WorkspaceRenameFolderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRenameFolderTests.swift; sourceTree = "<group>"; };
+		0A100000000000000000001C /* WorkspaceRenameNoteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRenameNoteTests.swift; sourceTree = "<group>"; };
+		0A100000000000000000001D /* WorkspaceMoveNoteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceMoveNoteTests.swift; sourceTree = "<group>"; };
+		0A100000000000000000001E /* WorkspaceDeleteNoteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceDeleteNoteTests.swift; sourceTree = "<group>"; };
+		0A100000000000000000001F /* WorkspaceDeleteFolderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceDeleteFolderTests.swift; sourceTree = "<group>"; };
+		0A10000000000000000000A1 /* WorkspaceReadNoteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceReadNoteTests.swift; sourceTree = "<group>"; };
+		0A1000000000000000000022 /* FileService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileService.swift; sourceTree = "<group>"; };
+		0A1000000000000000000131 /* AttachmentService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachmentService.swift; sourceTree = "<group>"; };
+		0A1000000000000000000023 /* FileServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileServiceTests.swift; sourceTree = "<group>"; };
+		0A1000000000000000000025 /* FrontMatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrontMatter.swift; sourceTree = "<group>"; };
+		0A1000000000000000000027 /* FrontMatterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrontMatterTests.swift; sourceTree = "<group>"; };
+		0A1000000000000000000029 /* ULID.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ULID.swift; sourceTree = "<group>"; };
+		0A100000000000000000002A /* NoteIDTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteIDTests.swift; sourceTree = "<group>"; };
+		0A100000000000000000002D /* NoteMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteMetadata.swift; sourceTree = "<group>"; };
+		0A100000000000000000002E /* NoteMetadataTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteMetadataTests.swift; sourceTree = "<group>"; };
+		0A1000000000000000000036 /* NoteTitle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteTitle.swift; sourceTree = "<group>"; };
+		0A1000000000000000000038 /* NoteTitleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteTitleTests.swift; sourceTree = "<group>"; };
+		0A10000000000000000000D5 /* NoteTags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteTags.swift; sourceTree = "<group>"; };
+		0A10000000000000000000D7 /* NoteTagsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteTagsTests.swift; sourceTree = "<group>"; };
+		0A10000000000000000000D9 /* PlainText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlainText.swift; sourceTree = "<group>"; };
+		0A10000000000000000000DB /* PlainTextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlainTextTests.swift; sourceTree = "<group>"; };
+		0A10000000000000000000E4 /* DatabaseManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseManager.swift; sourceTree = "<group>"; };
+		0A10000000000000000000E6 /* DatabaseManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseManagerTests.swift; sourceTree = "<group>"; };
+		0A10000000000000000000EB /* Schema.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Schema.swift; sourceTree = "<group>"; };
+		0A10000000000000000000ED /* NotesSchemaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesSchemaTests.swift; sourceTree = "<group>"; };
+		0A10000000000000000000F2 /* TagsSchemaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagsSchemaTests.swift; sourceTree = "<group>"; };
+		0A10000000000000000000F7 /* FTSSchemaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FTSSchemaTests.swift; sourceTree = "<group>"; };
+		0A1000000000000000000102 /* ParsedNote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParsedNote.swift; sourceTree = "<group>"; };
+		0A1000000000000000000104 /* IndexService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IndexService.swift; sourceTree = "<group>"; };
+		0A1000000000000000000109 /* IndexRebuild.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IndexRebuild.swift; sourceTree = "<group>"; };
+		0A100000000000000000010B /* IndexUpdater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IndexUpdater.swift; sourceTree = "<group>"; };
+		0A100000000000000000010E /* SearchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchService.swift; sourceTree = "<group>"; };
+		0A1000000000000000000106 /* IndexServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IndexServiceTests.swift; sourceTree = "<group>"; };
+		0A1000000000000000000110 /* SearchServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchServiceTests.swift; sourceTree = "<group>"; };
+		0A1000000000000000000112 /* MarkdownEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownEditorView.swift; sourceTree = "<group>"; };
+		0A1000000000000000000114 /* editor.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = editor.html; sourceTree = "<group>"; };
+		0A1000000000000000000117 /* editor.bundle.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "editor.bundle.js"; sourceTree = "<group>"; };
+		0A1000000000000000000119 /* editor.bundle.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = "editor.bundle.css"; sourceTree = "<group>"; };
+		0A1000000000000000000021 /* MinneTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MinneTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		0A1000000000000000000020 /* Minne.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Minne.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		0A1000000000000000000031 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		0A1000000000000000000034 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		0A1000000000000000000040 = {
+			isa = PBXGroup;
+			children = (
+				0A1000000000000000000041 /* Minne */,
+				0A1000000000000000000048 /* MinneTests */,
+				0A1000000000000000000043 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		0A1000000000000000000041 /* Minne */ = {
+			isa = PBXGroup;
+			children = (
+				0A1000000000000000000044 /* App */,
+				0A1000000000000000000045 /* Views */,
+				0A1000000000000000000046 /* Resources */,
+				0A1000000000000000000047 /* Workspace */,
+				0A1000000000000000000049 /* FileSystem */,
+				0A100000000000000000004A /* Notes */,
+				0A10000000000000000000E8 /* Database */,
+				0A1000000000000000000108 /* Index */,
+				0A100000000000000000010D /* Search */,
+				0A1000000000000000000116 /* Editor */,
+			);
+			path = Minne;
+			sourceTree = "<group>";
+		};
+		0A1000000000000000000044 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				0A1000000000000000000011 /* MinneApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		0A1000000000000000000045 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				0A1000000000000000000012 /* ContentView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		0A1000000000000000000046 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				0A1000000000000000000013 /* Info.plist */,
+				0A1000000000000000000114 /* editor.html */,
+				0A1000000000000000000117 /* editor.bundle.js */,
+				0A1000000000000000000119 /* editor.bundle.css */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		0A1000000000000000000047 /* Workspace */ = {
+			isa = PBXGroup;
+			children = (
+				0A1000000000000000000014 /* WorkspaceManager.swift */,
+				0A1000000000000000000016 /* WorkspaceItem.swift */,
+				0A1000000000000000000017 /* WorkspaceScanner.swift */,
+				0A1000000000000000000133 /* WorkspaceWatcher.swift */,
+			);
+			path = Workspace;
+			sourceTree = "<group>";
+		};
+		0A1000000000000000000049 /* FileSystem */ = {
+			isa = PBXGroup;
+			children = (
+				0A1000000000000000000022 /* FileService.swift */,
+				0A1000000000000000000131 /* AttachmentService.swift */,
+			);
+			path = FileSystem;
+			sourceTree = "<group>";
+		};
+		0A100000000000000000004A /* Notes */ = {
+			isa = PBXGroup;
+			children = (
+				0A1000000000000000000025 /* FrontMatter.swift */,
+				0A1000000000000000000029 /* ULID.swift */,
+				0A100000000000000000002D /* NoteMetadata.swift */,
+				0A1000000000000000000036 /* NoteTitle.swift */,
+				0A10000000000000000000D5 /* NoteTags.swift */,
+				0A10000000000000000000D9 /* PlainText.swift */,
+				0A1000000000000000000102 /* ParsedNote.swift */,
+			);
+			path = Notes;
+			sourceTree = "<group>";
+		};
+		0A1000000000000000000108 /* Index */ = {
+			isa = PBXGroup;
+			children = (
+				0A1000000000000000000104 /* IndexService.swift */,
+				0A1000000000000000000109 /* IndexRebuild.swift */,
+				0A100000000000000000010B /* IndexUpdater.swift */,
+			);
+			path = Index;
+			sourceTree = "<group>";
+		};
+		0A100000000000000000010D /* Search */ = {
+			isa = PBXGroup;
+			children = (
+				0A100000000000000000010E /* SearchService.swift */,
+			);
+			path = Search;
+			sourceTree = "<group>";
+		};
+		0A1000000000000000000116 /* Editor */ = {
+			isa = PBXGroup;
+			children = (
+				0A1000000000000000000112 /* MarkdownEditorView.swift */,
+			);
+			path = Editor;
+			sourceTree = "<group>";
+		};
+		0A10000000000000000000E8 /* Database */ = {
+			isa = PBXGroup;
+			children = (
+				0A10000000000000000000E4 /* DatabaseManager.swift */,
+				0A10000000000000000000EB /* Schema.swift */,
+			);
+			path = Database;
+			sourceTree = "<group>";
+		};
+		0A1000000000000000000048 /* MinneTests */ = {
+			isa = PBXGroup;
+			children = (
+				0A1000000000000000000015 /* WorkspaceBookmarkTests.swift */,
+				0A1000000000000000000018 /* WorkspaceScannerTests.swift */,
+				0A1000000000000000000135 /* WorkspaceWatcherTests.swift */,
+				0A1000000000000000000019 /* WorkspaceCreateFolderTests.swift */,
+				0A100000000000000000001A /* WorkspaceCreateNoteTests.swift */,
+				0A100000000000000000001B /* WorkspaceRenameFolderTests.swift */,
+				0A100000000000000000001C /* WorkspaceRenameNoteTests.swift */,
+				0A100000000000000000001D /* WorkspaceMoveNoteTests.swift */,
+				0A100000000000000000001E /* WorkspaceDeleteNoteTests.swift */,
+				0A100000000000000000001F /* WorkspaceDeleteFolderTests.swift */,
+				0A10000000000000000000A1 /* WorkspaceReadNoteTests.swift */,
+				0A1000000000000000000023 /* FileServiceTests.swift */,
+				0A1000000000000000000027 /* FrontMatterTests.swift */,
+				0A100000000000000000002A /* NoteIDTests.swift */,
+				0A100000000000000000002E /* NoteMetadataTests.swift */,
+				0A1000000000000000000038 /* NoteTitleTests.swift */,
+				0A10000000000000000000D7 /* NoteTagsTests.swift */,
+				0A10000000000000000000DB /* PlainTextTests.swift */,
+				0A10000000000000000000E6 /* DatabaseManagerTests.swift */,
+				0A10000000000000000000ED /* NotesSchemaTests.swift */,
+				0A10000000000000000000F2 /* TagsSchemaTests.swift */,
+				0A10000000000000000000F7 /* FTSSchemaTests.swift */,
+				0A1000000000000000000106 /* IndexServiceTests.swift */,
+				0A1000000000000000000110 /* SearchServiceTests.swift */,
+			);
+			path = MinneTests;
+			sourceTree = "<group>";
+		};
+		0A1000000000000000000043 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				0A1000000000000000000020 /* Minne.app */,
+				0A1000000000000000000021 /* MinneTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXContainerItemProxy section */
+		0A1000000000000000000080 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 0A1000000000000000000060 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 0A1000000000000000000050;
+			remoteInfo = Minne;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXNativeTarget section */
+		0A1000000000000000000050 /* Minne */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0A1000000000000000000061 /* Build configuration list for PBXNativeTarget "Minne" */;
+			buildPhases = (
+				0A1000000000000000000030 /* Sources */,
+				0A1000000000000000000031 /* Frameworks */,
+				0A1000000000000000000032 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Minne;
+			packageProductDependencies = (
+				0A10000000000000000000DF /* GRDB */,
+			);
+			productName = Minne;
+			productReference = 0A1000000000000000000020 /* Minne.app */;
+			productType = "com.apple.product-type.application";
+		};
+		0A1000000000000000000051 /* MinneTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0A1000000000000000000063 /* Build configuration list for PBXNativeTarget "MinneTests" */;
+			buildPhases = (
+				0A1000000000000000000033 /* Sources */,
+				0A1000000000000000000034 /* Frameworks */,
+				0A1000000000000000000035 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				0A1000000000000000000081 /* PBXTargetDependency */,
+			);
+			name = MinneTests;
+			packageProductDependencies = (
+				0A10000000000000000000DF /* GRDB */,
+			);
+			productName = MinneTests;
+			productReference = 0A1000000000000000000021 /* MinneTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXTargetDependency section */
+		0A1000000000000000000081 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 0A1000000000000000000050 /* Minne */;
+			targetProxy = 0A1000000000000000000080 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin PBXProject section */
+		0A1000000000000000000060 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1500;
+				LastUpgradeCheck = 1500;
+				TargetAttributes = {
+					0A1000000000000000000050 = {
+						CreatedOnToolsVersion = 15.0;
+					};
+				};
+			};
+			buildConfigurationList = 0A1000000000000000000062 /* Build configuration list for PBXProject "Minne" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 0A1000000000000000000040;
+			productRefGroup = 0A1000000000000000000043 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				0A1000000000000000000050 /* Minne */,
+				0A1000000000000000000051 /* MinneTests */,
+			);
+			packageReferences = (
+				0A10000000000000000000DE /* XCRemoteSwiftPackageReference "GRDB.swift" */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		0A1000000000000000000032 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0A1000000000000000000115 /* editor.html in Resources */,
+				0A1000000000000000000118 /* editor.bundle.js in Resources */,
+				0A100000000000000000011A /* editor.bundle.css in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		0A1000000000000000000035 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		0A1000000000000000000030 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0A1000000000000000000001 /* MinneApp.swift in Sources */,
+				0A1000000000000000000002 /* ContentView.swift in Sources */,
+				0A1000000000000000000004 /* WorkspaceManager.swift in Sources */,
+				0A1000000000000000000006 /* WorkspaceItem.swift in Sources */,
+				0A1000000000000000000007 /* WorkspaceScanner.swift in Sources */,
+				0A1000000000000000000132 /* WorkspaceWatcher.swift in Sources */,
+				0A1000000000000000000010 /* FileService.swift in Sources */,
+				0A1000000000000000000130 /* AttachmentService.swift in Sources */,
+				0A1000000000000000000026 /* FrontMatter.swift in Sources */,
+				0A100000000000000000002B /* ULID.swift in Sources */,
+				0A100000000000000000002F /* NoteMetadata.swift in Sources */,
+				0A1000000000000000000037 /* NoteTitle.swift in Sources */,
+				0A10000000000000000000D6 /* NoteTags.swift in Sources */,
+				0A10000000000000000000DA /* PlainText.swift in Sources */,
+				0A10000000000000000000E5 /* DatabaseManager.swift in Sources */,
+				0A10000000000000000000EC /* Schema.swift in Sources */,
+				0A1000000000000000000103 /* ParsedNote.swift in Sources */,
+				0A1000000000000000000105 /* IndexService.swift in Sources */,
+				0A100000000000000000010A /* IndexRebuild.swift in Sources */,
+				0A100000000000000000010C /* IndexUpdater.swift in Sources */,
+				0A100000000000000000010F /* SearchService.swift in Sources */,
+				0A1000000000000000000113 /* MarkdownEditorView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		0A1000000000000000000033 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0A1000000000000000000005 /* WorkspaceBookmarkTests.swift in Sources */,
+				0A1000000000000000000008 /* WorkspaceScannerTests.swift in Sources */,
+				0A1000000000000000000134 /* WorkspaceWatcherTests.swift in Sources */,
+				0A1000000000000000000009 /* WorkspaceCreateFolderTests.swift in Sources */,
+				0A100000000000000000000A /* WorkspaceCreateNoteTests.swift in Sources */,
+				0A100000000000000000000B /* WorkspaceRenameFolderTests.swift in Sources */,
+				0A100000000000000000000C /* WorkspaceRenameNoteTests.swift in Sources */,
+				0A100000000000000000000D /* WorkspaceMoveNoteTests.swift in Sources */,
+				0A100000000000000000000E /* WorkspaceDeleteNoteTests.swift in Sources */,
+				0A100000000000000000000F /* WorkspaceDeleteFolderTests.swift in Sources */,
+				0A10000000000000000000A0 /* WorkspaceReadNoteTests.swift in Sources */,
+				0A1000000000000000000024 /* FileServiceTests.swift in Sources */,
+				0A1000000000000000000028 /* FrontMatterTests.swift in Sources */,
+				0A100000000000000000002C /* NoteIDTests.swift in Sources */,
+				0A100000000000000000003F /* NoteMetadataTests.swift in Sources */,
+				0A1000000000000000000039 /* NoteTitleTests.swift in Sources */,
+				0A10000000000000000000D8 /* NoteTagsTests.swift in Sources */,
+				0A10000000000000000000DC /* PlainTextTests.swift in Sources */,
+				0A10000000000000000000E7 /* DatabaseManagerTests.swift in Sources */,
+				0A10000000000000000000EE /* NotesSchemaTests.swift in Sources */,
+				0A10000000000000000000F3 /* TagsSchemaTests.swift in Sources */,
+				0A10000000000000000000F8 /* FTSSchemaTests.swift in Sources */,
+				0A1000000000000000000107 /* IndexServiceTests.swift in Sources */,
+				0A1000000000000000000111 /* SearchServiceTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		0A1000000000000000000070 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		0A1000000000000000000071 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		0A1000000000000000000072 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Minne/Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.minne.Minne;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+			};
+			name = Debug;
+		};
+		0A1000000000000000000073 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Minne/Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.minne.Minne;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+			};
+			name = Release;
+		};
+		0A1000000000000000000084 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.minne.MinneTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Minne.app/Contents/MacOS/Minne";
+			};
+			name = Debug;
+		};
+		0A1000000000000000000085 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.minne.MinneTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Minne.app/Contents/MacOS/Minne";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		0A1000000000000000000061 /* Build configuration list for PBXNativeTarget "Minne" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0A1000000000000000000072 /* Debug */,
+				0A1000000000000000000073 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		0A1000000000000000000063 /* Build configuration list for PBXNativeTarget "MinneTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0A1000000000000000000084 /* Debug */,
+				0A1000000000000000000085 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		0A1000000000000000000062 /* Build configuration list for PBXProject "Minne" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0A1000000000000000000070 /* Debug */,
+				0A1000000000000000000071 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		0A10000000000000000000DE /* XCRemoteSwiftPackageReference "GRDB.swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/groue/GRDB.swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 7.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		0A10000000000000000000DF /* GRDB */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0A10000000000000000000DE /* XCRemoteSwiftPackageReference "GRDB.swift" */;
+			productName = GRDB;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 0A1000000000000000000060 /* Project object */;
+}
