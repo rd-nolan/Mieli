@@ -18,17 +18,20 @@ struct ParsedNote {
 
     /// Parses `markdown` for a note at `relativePath` (workspace-relative).
     ///
-    /// A stable `id` is taken from the Front Matter when present; otherwise a
-    /// fresh ULID is generated (a newly encountered note gets a stable id
-    /// without rewriting the file).
-    init(relativePath: String, markdown: String) {
+    /// A stable `id` is taken from the Front Matter when present. For notes
+    /// that carry no Front Matter `id` (e.g. externally created files), callers
+    /// that already know a persisted id should pass it as `existingStableID`:
+    /// that keeps the id stable across re-parses instead of minting a new ULID
+    /// every time (T107). A fresh ULID is generated only when no id exists
+    /// anywhere (a genuinely new note). Front Matter `id` always wins.
+    init(relativePath: String, markdown: String, existingStableID: String? = nil) {
         let ns = relativePath as NSString
         self.relativePath = relativePath
         self.filename = ns.lastPathComponent
         self.folder = ns.deletingLastPathComponent  // "" when at root
 
         let fm = FrontMatterParser.parse(markdown)
-        self.id = fm?.id ?? NoteID.generate()
+        self.id = fm?.id ?? existingStableID ?? NoteID.generate()
         self.title = NoteTitleParser.title(of: markdown, filename: self.filename)
         self.tags = fm?.tags ?? []
         self.createdAtISO = fm?.created.map(Self.isoString)

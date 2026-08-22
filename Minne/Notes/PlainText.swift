@@ -50,12 +50,19 @@ enum PlainTextExtractor {
         // Links:  [text](url) → text
         s = s.replacingOccurrences(
             of: #"\[([^\]]*)\]\([^)]*\)"#, with: "$1", options: .regularExpression)
-        // Inline code and backticks: `x` → x  (also strip tildes first)
+        // Inline code and backticks: `x` → x
         s = s.replacingOccurrences(of: #"`"#, with: "", options: .literal)
-        // Strikeout ~ ~
-        s = s.replacingOccurrences(of: #"~~"#, with: "", options: .literal)
-        // Emphasis & strong: **x** /*-* */ __x__ _x_  (strip asterisks/underscores)
-        s = s.replacingOccurrences(of: #"[*_~]"#, with: "", options: .regularExpression)
+        // Emphasis & strong — strip only *paired* Markdown delimiters, keeping
+        // the inner text and leaving bare markers / prose-internal delimiters
+        // untouched (e.g. `snake_case`, `2*3`, `C++`) (T110). The lookbehind /
+        // lookahead stop delimiters adjacent to word chars/digits/underscore
+        // from being treated as Markdown, which is what keeps Chinese+English
+        // notes searchable without corrupting ordinary text.
+        s = s.replacingOccurrences(of: #"(?<![A-Za-z0-9])\*\*([^*]+)\*\*(?![A-Za-z0-9])"#, with: "$1", options: .regularExpression)
+        s = s.replacingOccurrences(of: #"(?<![A-Za-z0-9_])\*([^*]*)\*(?![A-Za-z0-9_])"#, with: "$1", options: .regularExpression)
+        s = s.replacingOccurrences(of: #"(?<![A-Za-z0-9])__([^_]+)__(?![A-Za-z0-9])"#, with: "$1", options: .regularExpression)
+        s = s.replacingOccurrences(of: #"(?<![A-Za-z0-9_])_([^_]+)_(?![A-Za-z0-9_])"#, with: "$1", options: .regularExpression)
+        s = s.replacingOccurrences(of: #"(?<!~)~([^~]+)~(?!~)"#, with: "$1", options: .regularExpression)
         // Heading marker #, blockquote >, list bullets, ordered markers
         let stripped = s
             .replacingOccurrences(of: #"^#{1,6}\s+"#, with: "", options: .regularExpression)

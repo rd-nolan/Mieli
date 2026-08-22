@@ -88,4 +88,20 @@ final class PlainTextTests: XCTestCase {
         let out = PlainTextExtractor.plainText(from: md)
         XCTAssertEqual(out.trimmingCharacters(in: .whitespacesAndNewlines), "纯文本  内容")
     }
+
+    /// T110: bare/prose-internal `*` `_` `~` (e.g. `snake_case`, `2*3`, `C++`)
+    /// must survive extraction — they are not Markdown delimiters here. Only
+    /// *paired* emphasis/strong markers are stripped.
+    func testProseSymbolsPreservedWhileEmphasisStripped() {
+        let md = "代码 snake_case 和 2*3=6 与 C++，*斜体* 与 **粗体** 标记"
+        let out = PlainTextExtractor.plainText(from: md)
+
+        XCTAssertTrue(out.contains("snake_case"), "underscore in a bare word must be kept")
+        XCTAssertTrue(out.contains("2*3=6"), "asterisk between digits must be kept")
+        XCTAssertTrue(out.contains("C++"), "plus sign is not affected")
+        XCTAssertFalse(out.contains("*斜体*"), "emphasis delimiters must still be stripped")
+        XCTAssertFalse(out.contains("**粗体**"), "strong delimiters must still be stripped")
+        XCTAssertTrue(out.contains("粗体"))
+        XCTAssertTrue(out.contains("斜体"))
+    }
 }

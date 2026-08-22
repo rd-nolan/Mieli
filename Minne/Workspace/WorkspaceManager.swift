@@ -784,11 +784,12 @@ guard target.hasPrefix(rootResolved + "/") else { return nil }
 
     /// Creates a security-scoped bookmark for a directory.
     ///
-    /// Returns `nil` if the bookmark cannot be created.
+/// Grants read-write access: Minne needs to save, rename, delete and write
+    /// attachments into the user's notes (T108). A read-only bookmark would
+    /// make every write fail once App Sandbox is enabled. `nil` if the
+    /// bookmark cannot be created.
     func createBookmark(for url: URL) -> Data? {
-        try? url.bookmarkData(
-            options: [.withSecurityScope, .securityScopeAllowOnlyReadAccess]
-        )
+        try? url.bookmarkData(options: [.withSecurityScope])
     }
 
     /// Writes bookmark data atomically to `destination` (normally `Self.bookmarkURL`).

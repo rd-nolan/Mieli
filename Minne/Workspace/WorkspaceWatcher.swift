@@ -79,7 +79,10 @@ final class WorkspaceWatcher {
 
     struct FileStamp: Equatable {
         let size: Int64
-        let mtime: Int64
+        /// Sub-second modification time (Unix epoch, seconds), same precision
+        /// as `IndexUpdater`'s `timeIntervalSince1970` so same-second edits with
+        /// unchanged size are still detected (T109).
+        let mtime: Double
     }
 
     /// Scans `root` for Markdown files (ignoring `.minne`/`*.files`) returning
@@ -111,7 +114,7 @@ final class WorkspaceWatcher {
                       let attrs = try? FileManager.default.attributesOfItem(atPath: url.path) {
                 guard let size = (attrs[.size] as? NSNumber)?.int64Value,
                       let mtime = (attrs[.modificationDate] as? Date)?.timeIntervalSince1970 else { continue }
-                out[rel] = FileStamp(size: size, mtime: Int64(mtime))
+                out[rel] = FileStamp(size: size, mtime: mtime)
             }
         }
     }

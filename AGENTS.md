@@ -2394,6 +2394,192 @@ DONE
 
 ⸻
 
+M11 — Local Index Correctness
+
+来源：
+
+代码 Review 发现的问题（非用户可见功能的扩张，不违反 §52 STOP PRODUCT EXPANSION —— 这些是既有功能的正确性修复）。
+
+T106 — Fix reconcile Orphan FTS Rows
+
+Status:
+
+DONE
+
+问题：
+
+`IndexUpdater.reconcile` 对「启动时检测到已删除的 .md 文件」只执行：
+
+DELETE FROM notes WHERE relative_path = ?
+
+没有删除对应的 note_fts 行（note_fts 是独立 FTS5 表，无触发器级联）。
+
+后果（已用 SQLite 复现）：
+
+已删除笔记的 FTS 行仍可被 MATCH 命中；SQLite 复用 rowid 后，新插入笔记被错误关联到已删笔记残留的 FTS 行（title/snippet 错配）。
+
+要求：
+
+reconcile 的 toDelete 逻辑改用与 IndexService.remove 相同的清理方式：
+
+DELETE FROM note_fts WHERE rowid IN (SELECT rowid FROM notes WHERE relative_path = ?)
+DELETE FROM notes WHERE relative_path = ?
+
+并补一个测试：
+
+testReconcileRemovesDeletedFileAlsoClearsFTS
+
+（现有 testReconcileRemovesDeletedFile 只断言 notes 行、未断言 FTS 行）
+
+Definition of Done：
+
+- 删除文件的 reconcile 同时清理 notes + note_fts
+- 新增测试验证 FTS 行被清除
+- Build + 相关测试通过
+
+⸻
+
+T107 — Stable ID for notes missing Front Matter id
+
+Status:
+
+DONE
+
+问题：
+
+ParsedNote.init 使用：
+
+id = fm?.id ?? NoteID.generate()
+
+对：
+
+Minne 自己创建的笔记（T032：写入稳定 id）
+
+无影响。
+
+对：
+
+外部创建且无 Front Matter id 的笔记（T091/T092 支持的场景）
+
+每次重新 parse 都会生成新 ULID：
+
+首次 reconcile → 用 ULID-A 入索引。
+
+随后外部修改 → updateFile 重新 parse → 生成 ULID-B → UPDATE notes WHERE id = B 匹配 0 行 → 抛 noteNotIndexed → 索引不更新。
+
+结论：
+
+外部创建的笔记被外部修改后，正文/标题的变化不会反映到搜索索引（T092 直接踩中）。
+
+要求：
+
+让无 id 笔记的 id 保持稳定，不再「每次 parse 生成新 ULID」。
+
+优先考虑：
+
+IndexUpdater.updateFile （和 reconcile 的 modified 分支）用 relative_path 定位既有行，已入库的 id 作为该笔记的稳定 id；只有真正的新文件才生成新 ULID。
+
+并补测试：
+
+- 无 id 笔记首次索引后，修改正文，updateFile 能更新成功（不再抛 noteNotIndexed）
+- 无 id 笔记的 id 两次 parse 稳定一致
+
+Definition of Done：
+
+- 无 Front Matter id 的笔记在外部修改后索引能正确更新
+- 补覆盖上述场景的测试
+- Build + 相关测试通过
+
+⸻
+
+T108 — Bookmark Read-Only Access
+
+Status:
+
+DONE
+
+问题：
+
+WorkspaceManager.createBookmark 使用：
+
+options: [.withSecurityScope, .securityScopeAllowOnlyReadAccess]
+
+只读权限。
+
+Minne 需要写入用户笔记（保存/重命名/删除/附件）。
+
+当前开发构建无沙盒（Info.plist 无 Entitlements，isSandboxed == false），只读 bookmark 不生效，所以现在不报错。
+
+但一旦启用 App Sandbox，只读 bookmark 会让所有写入操作失败。
+
+要求：
+
+移除 .securityScopeAllowOnlyReadAccess，改用可读写 bookmark。
+
+Definition of Done：
+
+- createBookmark 不再使用只读 option
+- 现有 WorkspaceBookmarkTests 仍通过
+- Build + 相关测试通过
+
+⸻
+
+T109 — Watcher mtime Precision Alignment
+
+Status:
+
+DONE
+
+Reason：
+
+- WorkspaceWatcher 把 mtime 截断为 秒级 Int64。
+- IndexUpdater.reconcile 用 .timeIntervalSince1970（Double 亚秒）。
+
+同秒内二次修改（size 相同）watcher 可能漏报 diff 触发；
+
+两套刻度不一致。
+
+要求：
+
+统一 watcher 与 reconciler 的 mtime 取整/比较粒度，使同秒修改也能被正确识别。
+
+（若实现复杂可先用 亚秒比较，避免引入额外状态。）
+
+Definition of Done：
+
+- watcher 使用与 reconcile 一致的 mtime 精度
+- Build + 测试通过
+
+⸻
+
+T110 — PlainText 过度清洗
+
+Status:
+
+DONE
+
+Reason：
+
+PlainTextExtractor.stripInlineMarkdown 用正则 #"[*_~]"# 移除 所有 * _ ~ 字符。
+
+后果：
+
+正文字段中出现的下划线/星号（如 foo_bar、2*3）也被清除，导致搜索结果匹配度下降。
+
+要求：
+
+- 只在 Markdown 语境（加粗/斜体标记等）移除 标记，不 mechanically 移除所有 * _ ~ 字符。
+
+- 补 PlainTextTests。
+
+Definition of Done：
+
+- 正文中普通下划线/星号保留
+- Markdown 语法标点仍被剥离
+- Build + 相关测试通过
+
+⸻
+
 52. MVP Completion Boundary
 
 当：
@@ -2461,7 +2647,7 @@ Required for:
 
 当前唯一允许执行：
 
-T105 — Basic Error Presentation — DONE
+T110 — PlainText 过度清洗 — DONE
 
 等待用户指定下一个 Current Task。
 
@@ -2677,6 +2863,6 @@ Minne 的目标不是功能最多。
 
 只执行：
 
-T105 — Basic Error Presentation
+T110 — PlainText 过度清洗
 
-完成、编译、验证、更新 T105 状态，然后 STOP。
+完成、编译、验证、更新 T110 状态，然后 STOP。

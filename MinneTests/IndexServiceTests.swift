@@ -350,6 +350,38 @@ final class IndexServiceTests: XCTestCase {
         XCTAssertEqual(ids, ["r-b"])
     }
 
+    /// T106: reconcile's deleted-file path must clear the FTS5 row too, not
+    /// just the `notes` row. `note_fts` is an independent table (no FK
+    /// cascade), so leaving it behind produces an orphan FTS row — searchable,
+    /// and later mis-associated with a new note that reuses the freed rowid.
+    func testReconcileRemovesDeletedFileAlsoClearsFTS() throws {
+        try writeFile("a.md", "---\nid: r-a\n---\n# 甲\n一个独特词汇甲")
+        try writeFile("b.md", "---\nid: r-b\n---\n# 乙\n独自残留乙")
+        try IndexUpdater.reconcile(workspace: tempDir, in: queue)
+
+        // Sanity: both notes are searchable before the external delete.
+        let before = try SearchService.search("独特词汇甲", in: queue)
+        XCTAssertEqual(before.map(\.id), ["r-a"])
+
+        try FileManager.default.removeItem(at: tempDir.appendingPathComponent("a.md"))
+        try IndexUpdater.reconcile(workspace: tempDir, in: queue)
+
+        // The deleted note's FTS row must be gone, not merely hidden by a JOIN.
+        let ftsRows: Int? = try queue.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM note_fts")
+        }
+        XCTAssertEqual(ftsRows, 1, "orphan FTS row for the deleted note must be removed")
+
+        // Its content must no longer be searchable.
+        let hits = try SearchService.search("独特词汇甲", in: queue)
+        XCTAssertTrue(hits.isEmpty, "deleted note content must not appear in search")
+
+        // The surviving note's own FTS row is intact (multi-char query for the
+        // trigram tokenizer, which cannot match single-character input).
+        let survivor = try SearchService.search("独自残留", in: queue)
+        XCTAssertEqual(survivor.map(\.id), ["r-b"])
+    }
+
     // MARK: - T066 updateFile (single-note index refresh after save)
 
     func testUpdateFileReflectsEditedContent() throws {
@@ -390,6 +422,61 @@ final class IndexServiceTests: XCTestCase {
         }
         XCTAssertGreaterThanOrEqual(mtime, 0)
         XCTAssertFalse(hash.isEmpty)
+    }
+
+    // MARK: - T107 stable id for notes missing Front Matter id
+
+    /// An externally created note without Front Matter `id` must keep its id
+    /// stable across edits. Before the fix, `ParsedNote` minted a fresh ULID on
+    /// every re-parse, so `update` missed the row and the index never refreshed.
+    func testUpdateFileSucceedsForIdlessNoteKeepingStableId() throws {
+        // A note with no Front Matter id, indexed by reconcile the first time.
+        try writeFile("note.md", "# 旧标题\n一个旧词汇甲\n")
+        try IndexUpdater.reconcile(workspace: tempDir, in: queue)
+
+        let idBefore: String = try queue.read { db in
+            try String.fetchOne(db, sql: "SELECT id FROM notes WHERE relative_path = 'note.md'")!
+        }
+
+        // External edit: change the content. `updateFile` must update the same
+        // row (preserved id), not throw or insert a duplicate.
+        try writeFile("note.md", "# 新标题\n一个新词汇乙\n")
+        try IndexUpdater.updateFile(at: "note.md", workspace: tempDir, in: queue)
+
+        let idAfter: String = try queue.read { db in
+            try String.fetchOne(db, sql: "SELECT id FROM notes WHERE relative_path = 'note.md'")!
+        }
+        XCTAssertEqual(idAfter, idBefore, "id-less note id must stay stable across edit")
+
+        // Exactly one row (no duplicate insert from an id change).
+        let rows: Int? = try queue.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM notes WHERE relative_path = 'note.md'")
+        }
+        XCTAssertEqual(rows, 1)
+
+        // New content is searchable; stale content is gone.
+        let hitsNew = try SearchService.search("新词汇乙", in: queue)
+        XCTAssertTrue(hitsNew.contains { $0.relativePath == "note.md" })
+        let hitsOld = try SearchService.search("旧词甲", in: queue)
+        XCTAssertFalse(hitsOld.contains { $0.relativePath == "note.md" })
+    }
+
+    /// ParsedNote with the same `existingStableID` is idempotent across parses.
+    func testParsedNoteKeepsExistingIdWhenFrontMatterMissing() throws {
+        let first = ParsedNote(relativePath: "x.md", markdown: "# a",
+                               existingStableID: "persisted-abc")
+        let second = ParsedNote(relativePath: "x.md", markdown: "# a\n更多",
+                                existingStableID: "persisted-abc")
+        XCTAssertEqual(first.id, "persisted-abc")
+        XCTAssertEqual(second.id, "persisted-abc")
+    }
+
+    /// A Front Matter id overrides any stored/existing id (it is authoritative).
+    func testFrontMatterIdWinsOverExistingStableID() throws {
+        let note = ParsedNote(relativePath: "x.md",
+                              markdown: "---\nid: FM\n---\n# t",
+                              existingStableID: "stored-old")
+        XCTAssertEqual(note.id, "FM")
     }
 
     private enum TestError: Error { case missingRow }

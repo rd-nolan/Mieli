@@ -68,6 +68,19 @@ final class WorkspaceWatcherTests: XCTestCase {
         XCTAssertTrue(WorkspaceWatcher.diff(new: s, old: s).isEmpty)
     }
 
+    /// T109: a rewrite within the same second (same size) must still be
+    /// detected via the sub-second mtime, matching the indexer's precision.
+    func testDiffDetectsSameSecondSubSecondModification() throws {
+        let before = WorkspaceWatcher.FileStamp(size: 100, mtime: 1_700_000_000.25)
+        // Same size, same whole-second second, only fractional part differs.
+        let after = WorkspaceWatcher.FileStamp(size: 100, mtime: 1_700_000_000.75)
+
+        let changes = WorkspaceWatcher.diff(new: ["a.md": after], old: ["a.md": before])
+        XCTAssertEqual(changes.count, 1)
+        XCTAssertEqual(changes[0].path, "a.md")
+        XCTAssertEqual(changes[0].kind, .modified)
+    }
+
     // MARK: live polling smoke (real filesystem, real watcher loop)
 
     func testPollingWatcherReportsCreatedNote() throws {

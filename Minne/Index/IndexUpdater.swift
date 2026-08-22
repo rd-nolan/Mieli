@@ -68,14 +68,21 @@ enum IndexUpdater {
             }
 
             guard let content = try? String(contentsOf: url, encoding: .utf8) else { continue }
-            let note = ParsedNote(relativePath: path, markdown: content)
 
-            if indexed[path] != nil {
+            if let existing = indexed[path] {
+                // Modified: preserve the already-indexed id so a note without
+                // Front Matter id stays stable across re-parses (T107). The
+                // stored id is that note's canonical id; Front Matter id, if
+                // present, still wins inside ParsedNote.
+                let note = ParsedNote(relativePath: path, markdown: content,
+                                      existingStableID: existing.id)
                 try IndexService.update(note, in: queue)   // modified
+                toTouch.append((note.id, mtime, size, Self.hash(content)))
             } else {
+                let note = ParsedNote(relativePath: path, markdown: content)
                 try IndexService.index(note, in: queue)     // new
+                toTouch.append((note.id, mtime, size, Self.hash(content)))
             }
-            toTouch.append((note.id, mtime, size, Self.hash(content)))
         }
 
         // Deleted files: indexed rows whose path is no longer on disk.
@@ -92,6 +99,15 @@ enum IndexUpdater {
                     """, arguments: [mtime, size, hash, id])
             }
             for path in toDelete {
+                // Delete the FTS5 row first: `note_fts` is an independent table
+                // (no FK cascade), so deleting only `notes` would leave an
+                // orphan FTS row behind — searchable, and buggy when SQLite
+                // reuses the freed rowid for a new note (T106). Mirrors
+                // `IndexService.remove`.
+                try db.execute(sql: """
+                    DELETE FROM note_fts
+                    WHERE rowid IN (SELECT rowid FROM notes WHERE relative_path = ?)
+                    """, arguments: [path])
                 try db.execute(sql: "DELETE FROM notes WHERE relative_path = ?", arguments: [path])
             }
         }
@@ -103,11 +119,19 @@ enum IndexUpdater {
     /// `file_size` / `content_hash` so the next startup reconcile sees the file
     /// as unchanged and skips it. No-op when the file is missing. Never
     /// modifies Markdown.
-    static func updateFile(at relativePath: String, workspace: URL, in queue: DatabaseQueue) throws {
+static func updateFile(at relativePath: String, workspace: URL, in queue: DatabaseQueue) throws {
         let url = workspace.appendingPathComponent(relativePath)
         guard let content = try? String(contentsOf: url, encoding: .utf8) else { return }
 
-        let note = ParsedNote(relativePath: relativePath, markdown: content)
+        // Preserve the id already indexed for this relative_path, if any, so a
+        // note without Front Matter id stays stable across re-parses (T107).
+        // Front Matter id, when present, wins regardless (handled by ParsedNote).
+        let existingID: String? = try queue.read { db in
+            try String.fetchOne(db, sql: "SELECT id FROM notes WHERE relative_path = ?",
+                                arguments: [relativePath])
+        }
+        let note = ParsedNote(relativePath: relativePath, markdown: content,
+                              existingStableID: existingID)
         // The note may be newly discovered externally (no indexed row yet):
         // `update` locates by stable id, so fall back to a fresh insert when
         // the id isn't indexed yet (T094). Existing ids keep their row across
