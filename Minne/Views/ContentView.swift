@@ -24,6 +24,17 @@ final class SaveRequest {
     var fire = false
 }
 
+/// Shared signal that the "更改工作区…" app menu command (T111) can hand the
+/// workspace-switch request to `ContentView`, which owns the pending-edit
+/// state that must be persisted before switching. Mirrors `SaveRequest`.
+@MainActor
+@Observable
+final class WorkspaceSwitchRequest {
+    /// True when the user asked to switch workspaces; ContentView consumes
+    /// and clears it after acting.
+    var fire = false
+}
+
 /// Root view for the Minne macOS app.
 ///
 /// M2 (T021): shows the real Workspace directory tree in a sidebar.
@@ -32,6 +43,7 @@ struct ContentView: View {
     @Environment(WorkspaceManager.self) private var workspace
     @Environment(SearchFocus.self) private var searchFocus
     @Environment(SaveRequest.self) private var saveRequest
+    @Environment(WorkspaceSwitchRequest.self) private var workspaceSwitch
     @FocusState private var searchFocused: Bool
     private let logger = Logger(subsystem: "Minne", category: "Editor")
     @State private var showingNewFolder = false
@@ -114,6 +126,17 @@ struct ContentView: View {
                         .help("Create a new Markdown note")
                         .keyboardShortcut("n", modifiers: .command)
                         .disabled(workspace.workspaceURL == nil)
+
+                        // T111: switch to a different local workspace at any
+                        // time — not just on first launch — via the system
+                        // folder picker.
+                        Button {
+                            changeWorkspace()
+                        } label: {
+                            Label("Change Workspace…", systemImage: "folder")
+                        }
+                        .help("Choose a different workspace directory")
+                        .disabled(workspace.workspaceURL == nil)
                     }
                 }
         } detail: {
@@ -171,6 +194,13 @@ struct ContentView: View {
             saveRequest.fire = false
             saveNow()
         }
+        // T111: the "更改工作区…" menu command triggers the same switch path as
+        // the sidebar toolbar button.
+        .onChange(of: workspaceSwitch.fire) { _, newValue in
+            guard newValue else { return }
+            workspaceSwitch.fire = false
+            changeWorkspace()
+        }
         .onChange(of: searchText) { _, newValue in
             performSearch(newValue)
         }
@@ -214,8 +244,12 @@ struct ContentView: View {
         .alert("新建笔记", isPresented: $showingNewNote) {
             TextField("笔记名称", text: $newNoteName)
             Button("创建") {
-                if workspace.createNote(at: scopedNewPath(newNoteName)) {
+                let createPath = scopedNewPath(newNoteName)
+                if workspace.createNote(at: createPath) {
                     newNoteName = ""
+                    // T112: open the note immediately so the user can start
+                    // typing instead of hunting for the new row in the tree.
+                    openNewNote(createdFrom: createPath)
                 } else {
                     showError("创建笔记失败：名称无效或同名笔记已存在。")
                 }
@@ -327,13 +361,30 @@ struct ContentView: View {
 
     private var sidebar: some View {
         VStack(spacing: 0) {
-            List(workspace.items, children: \.children, selection: $selectedItem) { item in
-                Label {
-                    Text(item.name)
-                } icon: {
-                    Image(systemName: iconName(for: item.kind))
+            // Selection is driven explicitly (a row Button sets `selectedItem`)
+            // instead of `List(selection:)`. A `List(selection:)` outline also
+            // sorts selection conflicts with the adjacent tags list.
+            List(workspace.items, children: \.children) { item in
+                Button {
+                    selectedItem = item
+                } label: {
+                    Label {
+                        // T113: hide the `.md` suffix for notes in the tree
+                        // while keeping the real filename in `relativePath`/rename.
+                        Text(sidebarDisplayName(for: item))
+                    } icon: {
+                        Image(systemName: iconName(for: item.kind))
+                    }
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
-                .lineLimit(1)
+                .buttonStyle(.plain)
+                .listRowBackground(
+                    selectedItem?.relativePath == item.relativePath
+                        ? Color.accentColor.opacity(0.15)
+                        : nil
+                )
 .contextMenu {
                     Button("Rename…") {
                         renamingItem = item
@@ -489,6 +540,50 @@ struct ContentView: View {
     private func scopedNewPath(_ name: String) -> String {
         guard let folder = newItemFolder, !folder.isEmpty else { return name }
         return folder + "/" + name
+    }
+
+    /// T112: selects the just-created note so the editor opens on it. Builds
+    /// the Workspace-relative `.md` path exactly as `WorkspaceManager.createNote`
+    /// does (append `.md` only when no extension), then selects a matching item
+    /// from the (refreshed) tree, falling back to a constructed item so the
+    /// editor opens even before the async tree re-scan lands.
+    private func openNewNote(createdFrom createPath: String) {
+        let basePath = createPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        var mdPath = basePath
+        if (mdPath as NSString).pathExtension.isEmpty {
+            mdPath += ".md"
+        }
+        // Ensure the folder filter/search don't keep the editor hidden.
+        selectedTag = nil
+        searchText = ""
+
+        if let item = selectedWorkspaceItem(for: mdPath) {
+            selectedItem = item
+            return
+        }
+        let name = (mdPath as NSString).deletingPathExtension
+            .components(separatedBy: "/").last ?? mdPath
+        selectedItem = WorkspaceItem(name: name, kind: .note, relativePath: mdPath, children: nil)
+    }
+
+    /// T111: switch to a different workspace. Persists any unsaved editor edit
+    /// (AGENTS §5) and clears workspace-scoped UI state so the new workspace
+    /// starts from its own tree/search/selection.
+    private func changeWorkspace() {
+        // Persist any pending edit before leaving this workspace's tree.
+        autosaveTask?.cancel()
+        autosaveTask = nil
+        if pendingMarkdown != nil {
+            writePendingMarkdown()
+            pendingMarkdown = nil
+            pendingPath = nil
+        }
+        selectedItem = nil
+        selectedTag = nil
+        searchText = ""
+        if !workspace.selectWorkspace() {
+            showError("无法建立该工作区。请确认目录可访问且可写。")
+        }
     }
 
     private var detailPlaceholder: some View {
@@ -679,6 +774,16 @@ struct ContentView: View {
 
     private func iconName(for kind: WorkspaceItem.Kind) -> String {
         kind == .folder ? "folder" : "doc"
+    }
+
+    /// T113: notes are displayed in the tree without their `.md` extension
+    /// (e.g. `技术方案` not `技术方案.md`); folders keep their full name.
+    /// The real filename stays in `relativePath` and the rename dialog.
+    private func sidebarDisplayName(for item: WorkspaceItem) -> String {
+        guard item.kind == .note, item.name.hasSuffix(".md") else {
+            return item.name
+        }
+        return String(item.name.dropLast(3))
     }
 
     /// T105: surface an important error to the user via the shared alert.

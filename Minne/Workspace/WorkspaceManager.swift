@@ -112,6 +112,13 @@ case .modified:
         w.start(root: url)
     }
 
+    /// Tears down the active watcher, if any. Used when switching workspaces
+    /// (T111) so a stale observer never reports changes from a previous
+    /// workspace; the next `startWatching` rebuilds it for the new root.
+    private func stopWatching() {
+        watcher?.stop()
+    }
+
     private func openIndex() {
         guard let url = workspaceURL else { return }
         let queue: DatabaseQueue
@@ -677,6 +684,10 @@ guard target.hasPrefix(rootResolved + "/") else { return nil }
     @MainActor
     @discardableResult
     func selectWorkspace() -> Bool {
+        // T111: switching workspaces first tears down the old watcher so a
+        // stale observer never reports changes from the previous workspace.
+        stopWatching()
+
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true

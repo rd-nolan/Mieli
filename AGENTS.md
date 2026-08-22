@@ -2580,6 +2580,79 @@ Definition of Done：
 
 ⸻
 
+M12 — Workspace UX Polish
+
+目标：
+
+修复 E2E 测试发现的三处基础 UX 问题：工作区可切换、新建笔记即打开、侧栏不显示 .md 后缀。
+
+T111 — Switch Workspace
+
+Status:
+
+DONE
+
+Reason：
+
+选中工作区后没有任何入口再选择/切换工作区。「Select Workspace…」按钮只在空态显示。
+
+要求：
+
+- 提供一个在已有工作区时也能切换的入口（工具栏或菜单）。
+- 复用已有 WorkspaceManager.selectWorkspace()。
+- 切换成功后重建索引、刷新侧栏。
+
+Definition of Done：
+
+- 已有工作区状态下可触发切换
+- 切换后侧栏/搜索指向新工作区
+- Build + 相关测试通过
+
+⸻
+
+T112 — Open Note After Create
+
+Status:
+
+DONE
+
+Reason：
+
+createNote 成功后未更新 selectedItem，新建笔记在侧栏出现但不进编辑器。
+
+要求：
+
+- 新建成功后自动选中并打开该笔记。
+
+Definition of Done：
+
+- 新建笔记后编辑器立即显示该笔记
+- Build + 相关测试通过
+
+⸻
+
+T113 — Hide .md Extension in Sidebar
+
+Status:
+
+DONE
+
+Reason：
+
+侧栏 Text(item.name) 直接渲染完整文件名含 .md 后缀。
+
+要求：
+
+- 侧栏笔记标题不显示 .md 后缀（标题规则参考 §11）。
+
+Definition of Done：
+
+- 侧栏笔记显示去尾缀文件名
+- 编辑/重命名仍作用于真实文件
+- Build + 相关测试通过
+
+⸻
+
 52. MVP Completion Boundary
 
 当：
@@ -2647,7 +2720,7 @@ Required for:
 
 当前唯一允许执行：
 
-T110 — PlainText 过度清洗 — DONE
+T113 — Hide .md Extension in Sidebar — DONE
 
 等待用户指定下一个 Current Task。
 
@@ -2863,6 +2936,6 @@ Minne 的目标不是功能最多。
 
 只执行：
 
-T110 — PlainText 过度清洗
+T113 — Hide .md Extension in Sidebar
 
-完成、编译、验证、更新 T110 状态，然后 STOP。
+完成、编译、验证、更新 T113 状态，然后 STOP。
