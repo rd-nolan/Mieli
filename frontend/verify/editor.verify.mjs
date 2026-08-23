@@ -59,6 +59,11 @@ const cases = [
   ["# Hello\n\n**World**", "# Hello\n\n**World**"],
   ["今天研究了 Spring 状态机的实现方案", "今天研究了 Spring 状态机的实现方案"],
   ["- 甲\n- 乙", "- 甲\n- 乙"],
+  [
+    "| 列一 | 列二 |\n| --- | --- |\n| 中文 | English |\n| 123 | 456 |",
+    "| 列一  | 列二      |\n| --- | ------- |\n| 中文  | English |\n| 123 | 456     |",
+  ],
+  ["- [x] 已完成\n- [ ] 未完成", "- [x] 已完成\n- [ ] 未完成"],
 ];
 
 let fail = 0;
@@ -73,6 +78,32 @@ for (const [md, expect] of cases) {
 
 process.exitCode = fail ? 1 : 0;
 console.log(fail ? "VERIFY FAILED" : "VERIFY OK");
+
+// T114: GFM structures must render as semantic editor nodes rather than
+// failing the whole document or degrading task items to literal text.
+ed.setMarkdown("| A | B |\n| --- | --- |\n| 1 | 2 |\n\n- [x] Done\n- [ ] Todo");
+const editorRoot = window.document.querySelector(".ProseMirror");
+const renderedTable = editorRoot?.querySelector("table");
+const taskBoxes = [...(editorRoot?.querySelectorAll('input[type="checkbox"]') ?? [])];
+const structureOK = Boolean(renderedTable) && taskBoxes.length === 2
+  && taskBoxes[0].checked && !taskBoxes[1].checked;
+console.log(structureOK
+  ? "PASS  table and task-list DOM"
+  : `FAIL  table/task DOM table=${Boolean(renderedTable)} boxes=${taskBoxes.length}`);
+if (!structureOK) process.exitCode = 1;
+
+const requiredStyles = [
+  ".ProseMirror ul",
+  ".ProseMirror ol",
+  ".ProseMirror blockquote",
+  ".ProseMirror :not(pre) > code",
+  ".ProseMirror table",
+];
+const missingStyles = requiredStyles.filter((selector) => !html.includes(selector));
+console.log(missingStyles.length === 0
+  ? "PASS  Markdown presentation styles"
+  : `FAIL  missing styles: ${missingStyles.join(", ")}`);
+if (missingStyles.length) process.exitCode = 1;
 
 // T063: programmatic loads (setMarkdown) must not emit contentChanged —
 // otherwise a Swift save→reload loop would self-notify forever.

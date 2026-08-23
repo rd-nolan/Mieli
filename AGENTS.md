@@ -2653,6 +2653,68 @@ Definition of Done：
 
 ⸻
 
+T114 — Fix Markdown Editor Rendering
+
+Status:
+
+DONE
+
+Reason：
+
+Markdown E2E 测试发现：
+
+* GFM 表格会导致整篇编辑器显示为空白
+* 无序列表、有序列表不显示项目符号或编号，嵌套层级不明显
+* 引用缺少清晰的视觉层级
+* 任务列表只显示字面量 `[x]` / `[ ]`
+* 行内代码缺少明确的视觉区分
+
+要求：
+
+* 表格 Markdown 能正常加载、显示和回写，不得导致整篇空白
+* 无序、有序及嵌套列表显示正确的标记和层级
+* 引用显示清晰的引用层级
+* 任务列表显示为可识别的复选框状态
+* 行内代码具有清晰但克制的等宽样式
+* 保持 Markdown 为唯一主数据，不引入新的第三方依赖
+
+Definition of Done：
+
+* 覆盖上述语法的 Editor 验证测试通过
+* macOS App Build 通过
+* 使用测试笔记完成一轮 E2E 回归
+
+⸻
+
+T115 — Fix Tag Updates and Rename Refresh
+
+Status:
+
+DONE
+
+Reason：
+
+用户视角 E2E 测试发现：
+
+* 添加标签提交后，当前笔记和侧栏仍显示无标签，且没有错误提示
+* 重命名当前打开的笔记后，编辑器暂时显示为空白；切换后重新打开才恢复
+
+要求：
+
+* 添加标签后立即更新 Markdown Front Matter、索引、当前笔记标签和侧栏标签
+* 标签更新失败时继续使用现有统一错误提示
+* 重命名当前打开的笔记后保持选中并立即显示原有 Markdown 内容
+* 不得因标签或重命名操作覆盖未保存编辑或丢失用户数据
+* 不扩展标签系统或重命名功能范围
+
+Definition of Done：
+
+* 补充覆盖标签提交与重命名后编辑器状态的相关测试
+* macOS App Build 与相关测试通过
+* 使用测试笔记完成标签和重命名 E2E 回归
+
+⸻
+
 52. MVP Completion Boundary
 
 当：
@@ -2720,11 +2782,9 @@ Required for:
 
 当前唯一允许执行：
 
-T113 — Hide .md Extension in Sidebar — DONE
+T115 — Fix Tag Updates and Rename Refresh — DONE
 
 等待用户指定下一个 Current Task。
-
-不要自行选择任务。
 
 ⸻
 
@@ -2936,6 +2996,6 @@ Minne 的目标不是功能最多。
 
 只执行：
 
-T113 — Hide .md Extension in Sidebar
+T115 — Fix Tag Updates and Rename Refresh
 
-完成、编译、验证、更新 T113 状态，然后 STOP。
+完成、编译、验证、更新 T115 状态，然后 STOP。

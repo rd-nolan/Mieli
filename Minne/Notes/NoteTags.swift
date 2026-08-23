@@ -41,6 +41,19 @@ enum NoteTags {
         if let tagsIndex = (1..<close).first(where: {
             lines[$0].trimmingCharacters(in: .whitespaces).hasPrefix("tags:")
         }) {
+            let tagsLine = lines[tagsIndex].trimmingCharacters(in: .whitespaces)
+            let inlineValue = String(tagsLine.dropFirst("tags:".count))
+                .trimmingCharacters(in: .whitespaces)
+            if !inlineValue.isEmpty {
+                // New notes use `tags: []`, and imported notes may use an
+                // inline array. Convert that representation to one valid YAML
+                // block list before appending; mixing both makes the parser
+                // keep seeing the old inline value and hides the new tag.
+                let updatedTags = tags(in: markdown) + [trimmed]
+                new[tagsIndex] = "tags:"
+                new.insert(contentsOf: updatedTags.map { "  - \($0)" }, at: tagsIndex + 1)
+                return new.joined(separator: "\n")
+            }
             // Append after the last contiguous list item under `tags:` so order
             // is preserved (a bare "after tags:" insert would land *before*
             // the first existing item).

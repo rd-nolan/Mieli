@@ -13,7 +13,7 @@ import { Editor, rootCtx, defaultValueCtx, editorViewCtx, inputRulesCtx, SchemaR
 import { commonmark } from "@milkdown/preset-commonmark";
 import { serializerCtx, parserCtx, remarkStringifyOptionsCtx, prosePluginsCtx, remarkPluginsCtx } from "@milkdown/core";
 import { Plugin, TextSelection } from "@milkdown/prose/state";
-import { $markSchema } from "@milkdown/utils";
+import { $markSchema, $nodeSchema } from "@milkdown/utils";
 import remarkGfm from "remark-gfm";
 import { visit } from "unist-util-visit";
 import "@milkdown/theme-nord/style.css";
@@ -79,23 +79,144 @@ function caretAfterText(startPos, node) {
   return pos + cur.nodeSize;
 }
 
-// remark-gfm + a guard so task-list checkboxes never lose data. remark-gfm
-// parses `- [ ] foo` into a listItem with a `checked` attr and drops that mark
-// on save (remark-stringify has no checkbox handler) — that would silently
-// erase the `[ ]`/`[x]` from the user's Markdown, which Minne must not do.
-// This transform rewrites a checked listItem back into its literal `[ ] `text
-// so the round trip preserves it exactly.
+// remark-gfm marks task-list items with `checked`. Give those items their own
+// editor node so the checkbox state is visible while remaining ordinary GFM
+// Markdown when serialized.
 const taskListGuard = () => (tree) => {
   visit(tree, "listItem", (node) => {
     if (node.checked === null || node.checked === undefined) return;
-    const label = node.checked ? "[x]" : "[ ]";
-    const first = node.children?.[0];
-    if (first?.type === "paragraph") {
-      first.children.unshift({ type: "text", value: label + " " });
-      delete node.checked;
-    }
+    node.type = "taskItem";
   });
 };
+
+const taskItemSchema = $nodeSchema("task_item", () => ({
+  group: "listItem",
+  content: "paragraph block*",
+  defining: true,
+  attrs: {
+    checked: { default: false, validate: "boolean" },
+    spread: { default: true, validate: "boolean" },
+  },
+  parseDOM: [{
+    tag: "li[data-task-item]",
+    getAttrs: (dom) => ({
+      checked: dom.dataset.checked === "true",
+      spread: dom.dataset.spread === "true",
+    }),
+  }],
+  toDOM: (node) => [
+    "li",
+    {
+      "data-task-item": "true",
+      "data-checked": String(node.attrs.checked),
+      "data-spread": String(node.attrs.spread),
+    },
+    ["input", {
+      type: "checkbox",
+      checked: node.attrs.checked ? "checked" : undefined,
+      disabled: "disabled",
+      "aria-label": node.attrs.checked ? "Completed task" : "Incomplete task",
+      contenteditable: "false",
+    }],
+    ["div", { class: "task-content" }, 0],
+  ],
+  parseMarkdown: {
+    match: (node) => node.type === "taskItem",
+    runner: (state, node, type) => {
+      state.openNode(type, {
+        checked: Boolean(node.checked),
+        spread: node.spread ?? true,
+      });
+      state.next(node.children);
+      state.closeNode();
+    },
+  },
+  toMarkdown: {
+    match: (node) => node.type.name === "task_item",
+    runner: (state, node) => {
+      state.openNode("listItem", undefined, {
+        checked: Boolean(node.attrs.checked),
+        spread: node.attrs.spread,
+      });
+      state.next(node.content);
+      state.closeNode();
+    },
+  },
+}));
+
+// remark-gfm produces table/tableRow/tableCell nodes. The CommonMark preset
+// has no matching ProseMirror schema, so parsing a table previously rejected
+// the entire document. These three small nodes keep the GFM structure editable
+// and round-trip its column alignment metadata.
+const tableCellSchema = $nodeSchema("table_cell", () => ({
+  content: "inline*",
+  isolating: true,
+  parseDOM: [{ tag: "td" }, { tag: "th" }],
+  toDOM: () => ["td", 0],
+  parseMarkdown: {
+    match: (node) => node.type === "tableCell",
+    runner: (state, node, type) => {
+      state.openNode(type);
+      state.next(node.children);
+      state.closeNode();
+    },
+  },
+  toMarkdown: {
+    match: (node) => node.type.name === "table_cell",
+    runner: (state, node) => {
+      state.openNode("tableCell");
+      state.next(node.content);
+      state.closeNode();
+    },
+  },
+}));
+
+const tableRowSchema = $nodeSchema("table_row", () => ({
+  content: "table_cell+",
+  parseDOM: [{ tag: "tr" }],
+  toDOM: () => ["tr", 0],
+  parseMarkdown: {
+    match: (node) => node.type === "tableRow",
+    runner: (state, node, type) => {
+      state.openNode(type);
+      state.next(node.children);
+      state.closeNode();
+    },
+  },
+  toMarkdown: {
+    match: (node) => node.type.name === "table_row",
+    runner: (state, node) => {
+      state.openNode("tableRow");
+      state.next(node.content);
+      state.closeNode();
+    },
+  },
+}));
+
+const tableSchema = $nodeSchema("table", () => ({
+  content: "table_row+",
+  group: "block",
+  isolating: true,
+  attrs: { align: { default: [] } },
+  parseDOM: [{ tag: "table" }],
+  toDOM: () => ["table", ["tbody", 0]],
+  parseMarkdown: {
+    match: (node) => node.type === "table",
+    runner: (state, node, type) => {
+      state.openNode(type, { align: Array.isArray(node.align) ? node.align : [] });
+      state.next(node.children);
+      state.closeNode();
+    },
+  },
+  toMarkdown: {
+    match: (node) => node.type.name === "table",
+    runner: (state, node) => {
+      state.openNode("table", undefined, { align: node.attrs.align });
+      state.next(node.content);
+      state.closeNode();
+    },
+  },
+}));
 
 // GFM delete/strike: supports `~~text~~` → <del>. Enabled by remarkGfm
 // (registered via remarkPluginsCtx) which parses `~~` as a `delete` node; this
@@ -337,6 +458,10 @@ async function boot() {
     .use(commonmark)
     .use(disableBlockWrapInputRules)
     .use(strikeSchema)
+    .use(taskItemSchema)
+    .use(tableCellSchema)
+    .use(tableRowSchema)
+    .use(tableSchema)
     .create();
 
   // T085: absolutize local image srcs against the note's folder.

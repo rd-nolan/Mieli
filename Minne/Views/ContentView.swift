@@ -263,9 +263,16 @@ struct ContentView: View {
             TextField("新名称", text: $renameText)
             Button("重命名") {
                 guard let item = renamingItem else { return }
-                let succeeded = item.kind == .note
-                    ? workspace.renameNote(at: item.relativePath, to: renameText)
-                    : workspace.renameFolder(at: item.relativePath, to: renameText)
+                let succeeded: Bool
+                if item.kind == .note {
+                    guard prepareForNoteMutation(at: item.relativePath) else { return }
+                    succeeded = workspace.renameNote(at: item.relativePath, to: renameText)
+                    if succeeded {
+                        selectRenamedNoteIfNeeded(item, newName: renameText)
+                    }
+                } else {
+                    succeeded = workspace.renameFolder(at: item.relativePath, to: renameText)
+                }
                 if succeeded { renamingItem = nil }
                 else { showError("重命名失败：名称无效或同名项目已存在。") }
             }
@@ -316,8 +323,15 @@ struct ContentView: View {
         .alert("添加标签", isPresented: $showingAddTag) {
             TextField("新标签", text: $addTagText)
             Button("添加") {
+                guard prepareForNoteMutation(at: addTagPath) else { return }
                 if workspace.addTag(addTagText, toNoteAt: addTagPath) {
+                    let addedTag = addTagText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !addedTag.isEmpty, !sidebarTags.contains(addedTag) {
+                        sidebarTags.append(addedTag)
+                        sidebarTags.sort { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+                    }
                     tagAddRevision += 1
+                    reloadNote()
                 } else {
                     showError("添加标签失败：无法写入笔记。")
                 }
@@ -658,10 +672,13 @@ struct ContentView: View {
     /// Writes the latest edited Markdown to the recorded note via the atomic
     /// `FileService` (T064), then refreshes the search index (T066). A failed
     /// write is logged; the editor retains the content.
-    private func writePendingMarkdown() {
-        guard let md = pendingMarkdown,
-              let path = pendingPath,
-              let root = workspace.workspaceURL else { return }
+    @discardableResult
+    private func writePendingMarkdown() -> Bool {
+        guard let md = pendingMarkdown, let path = pendingPath else { return true }
+        guard let root = workspace.workspaceURL else {
+            showError("保存「\(path)」失败：工作区当前不可用。\n内容仍保留在编辑器中，请重试。")
+            return false
+        }
         let url = root.appendingPathComponent(path)
         do {
             try FileService.saveMarkdown(md, to: url)
@@ -673,10 +690,35 @@ struct ContentView: View {
             logger.error("Save failed for \(path, privacy: .public): \(error.localizedDescription, privacy: .public)")
             // T105: a failed save risks data loss (AGENTS §5) — surface it.
             showError("保存「\(path)」失败：\(error.localizedDescription)\n内容仍保留在编辑器中，请重试。")
-            return
+            return false
         }
         // T066: keep the search index in sync with the saved content.
         workspace.refreshIndex(forNoteAt: path)
+        return true
+    }
+
+    /// T115: file-backed mutations must not race the editor's debounced save.
+    /// Persist the latest Markdown first and keep it in memory if saving fails.
+    private func prepareForNoteMutation(at path: String) -> Bool {
+        guard pendingPath == path, pendingMarkdown != nil else { return true }
+        autosaveTask?.cancel()
+        autosaveTask = nil
+        guard writePendingMarkdown() else { return false }
+        pendingMarkdown = nil
+        pendingPath = nil
+        return true
+    }
+
+    /// T115: replace the selected value's removed path after a successful rename.
+    private func selectRenamedNoteIfNeeded(_ item: WorkspaceItem, newName: String) {
+        guard selectedItem?.relativePath == item.relativePath else { return }
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let filename = trimmed.hasSuffix(".md") ? trimmed : "\(trimmed).md"
+        let parent = (item.relativePath as NSString).deletingLastPathComponent
+        let newPath = parent.isEmpty ? filename : "\(parent)/\(filename)"
+        selectedItem = selectedWorkspaceItem(for: newPath)
+            ?? WorkspaceItem(name: filename, kind: .note, relativePath: newPath, children: nil)
+        reloadNote()
     }
 
     /// T102: persist any pending edit right away (⌘S). Cancels the pending
@@ -697,8 +739,10 @@ struct ContentView: View {
                     Text(tag)
                         .font(.caption)
                     Button {
+                        guard prepareForNoteMutation(at: notePath) else { return }
                         if workspace.removeTag(tag, fromNoteAt: notePath) {
                             tagAddRevision += 1
+                            reloadNote()
                         } else {
                             showError("移除标签失败：无法写入笔记。")
                         }

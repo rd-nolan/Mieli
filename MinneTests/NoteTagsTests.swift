@@ -90,6 +90,24 @@ final class NoteTagsTests: XCTestCase {
         XCTAssertTrue(out.contains("正文"))
     }
 
+    func testAddTagConvertsEmptyInlineArrayUsedByNewNotes() {
+        let md = "---\nid: 3\ntags: []\n---\n# 新笔记\n"
+        let out = NoteTags.addTag("T115", to: md)
+
+        XCTAssertEqual(NoteTags.tags(in: out), ["T115"])
+        XCTAssertFalse(out.contains("tags: []"))
+        XCTAssertTrue(out.contains("tags:\n  - T115\n"))
+        XCTAssertTrue(out.contains("# 新笔记"))
+    }
+
+    func testAddTagConvertsPopulatedInlineArrayWithoutLosingTags() {
+        let md = "---\ntags: [Swift, macOS]\n---\n"
+        let out = NoteTags.addTag("Editor", to: md)
+
+        XCTAssertEqual(NoteTags.tags(in: out), ["Swift", "macOS", "Editor"])
+        XCTAssertFalse(out.contains("tags: ["))
+    }
+
     func testAddTagPrependsBlockWhenNoFrontMatter() {
         let md = "# 无 FM\n"
         let out = NoteTags.addTag("新建", to: md)

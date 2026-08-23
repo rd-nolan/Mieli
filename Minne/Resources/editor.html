@@ -116,6 +116,79 @@
     .ProseMirror > :first-child {
       margin-top: 0;
     }
+
+    /* Milkdown's base reset removes native list markers. Restore semantic
+       markers and enough indentation to make nested structure obvious. */
+    .ProseMirror ul {
+      list-style: disc outside !important;
+      padding-left: 1.6em;
+      margin: 0.5em 0;
+    }
+    .ProseMirror ol {
+      list-style: decimal outside !important;
+      padding-left: 1.8em;
+      margin: 0.5em 0;
+    }
+    .ProseMirror ul ul { list-style-type: circle !important; }
+    .ProseMirror ul ul ul { list-style-type: square !important; }
+    .ProseMirror li { margin: 0.18em 0; }
+
+    .ProseMirror blockquote {
+      margin: 0.7em 0;
+      padding: 0.15em 0 0.15em 0.9em;
+      border-left: 3px solid rgba(94, 129, 172, 0.65);
+      color: rgba(0, 0, 0, 0.68);
+    }
+    .ProseMirror blockquote blockquote {
+      margin-left: 0.55em;
+      border-left-color: rgba(94, 129, 172, 0.35);
+    }
+
+    .ProseMirror :not(pre) > code {
+      padding: 0.12em 0.32em;
+      border-radius: 4px;
+      background: rgba(127, 127, 127, 0.13);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+      font-size: 0.92em;
+    }
+
+    .ProseMirror table {
+      width: 100%;
+      margin: 0.8em 0;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+    .ProseMirror th,
+    .ProseMirror td {
+      min-width: 5em;
+      padding: 0.45em 0.6em;
+      border: 1px solid rgba(127, 127, 127, 0.35);
+      text-align: left;
+      vertical-align: top;
+    }
+    .ProseMirror tr:first-child td {
+      background: rgba(127, 127, 127, 0.1);
+      font-weight: 600;
+    }
+
+    .ProseMirror li[data-task-item] {
+      list-style: none !important;
+      display: flex;
+      align-items: flex-start;
+      gap: 0.45em;
+      margin-left: -1.35em;
+    }
+    .ProseMirror li[data-task-item] > input[type="checkbox"] {
+      flex: 0 0 auto;
+      margin-top: 0.32em;
+    }
+    .ProseMirror li[data-task-item] > .task-content {
+      min-width: 0;
+      flex: 1;
+    }
+    .ProseMirror li[data-task-item] > .task-content > p:first-child {
+      margin-top: 0;
+    }
   </style>
 </head>
 <body>

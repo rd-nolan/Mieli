@@ -10,6 +10,7 @@ import GRDB
 /// 5. Tag management: adding/removing front matter tags, workspace tag queries, and filtering.
 /// 6. Full-Text Search: SQLite FTS5 trigram, Chinese/English tokenization, ranking (title > content > path), snippets, incremental update, and full rebuild.
 /// 7. External filesystem changes: watcher observation, external creations, own write suppression, and conflict detection.
+/// 8. Editor-backed tag and rename mutations preserve the latest Markdown.
 final class EndToEndWorkflowTests: XCTestCase {
 
     private var workspaceURL: URL!
@@ -554,5 +555,41 @@ final class EndToEndWorkflowTests: XCTestCase {
         // Since no other note had "macOS", "macOS" must be removed from sidebarTags
         XCTAssertFalse(workspaceManager.allTags().contains("macOS"))
         XCTAssertEqual(workspaceManager.notes(withTag: "macOS"), [])
+    }
+
+    // MARK: - E2E Scenario 8: Save, Tag, and Rename Preserve Editor Content
+
+    @MainActor
+    func testSavedEditorContentSurvivesTagAndRenameMutations() throws {
+        let bookmarkData = try XCTUnwrap(workspaceManager.createBookmark(for: workspaceURL))
+        XCTAssertTrue(workspaceManager.persist(bookmarkData, to: bookmarkFileURL))
+        _ = workspaceManager.restoreWorkspace(bookmarkSource: bookmarkFileURL)
+
+        let originalPath = "编辑中的笔记.md"
+        let originalURL = workspaceURL.appendingPathComponent(originalPath)
+        let editedMarkdown = """
+        ---
+        id: 01HT115EDITORCONTENT000001
+        tags: []
+        created: 2026-08-23T14:00:00+08:00
+        updated: 2026-08-23T14:00:00+08:00
+        ---
+        # 尚未自动保存的标题
+
+        用户刚刚输入的正文必须保留。
+        """
+
+        // Mirrors T115's required ordering: persist the latest editor value,
+        // then mutate Front Matter, then rename the file-backed note.
+        try FileService.saveMarkdown(editedMarkdown, to: originalURL)
+        XCTAssertTrue(workspaceManager.addTag("T115", toNoteAt: originalPath))
+        XCTAssertTrue(workspaceManager.renameNote(at: originalPath, to: "已重命名笔记"))
+
+        let renamedURL = workspaceURL.appendingPathComponent("已重命名笔记.md")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: originalURL.path))
+        let reloaded = try String(contentsOf: renamedURL, encoding: .utf8)
+        XCTAssertTrue(reloaded.contains("  - T115"))
+        XCTAssertTrue(reloaded.contains("# 尚未自动保存的标题"))
+        XCTAssertTrue(reloaded.contains("用户刚刚输入的正文必须保留。"))
     }
 }
