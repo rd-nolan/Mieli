@@ -117,12 +117,9 @@ enum AttachmentService {
                                          oldStem: String,
                                          newStem: String) -> String {
         guard oldStem != newStem else { return markdown }
-        let old = oldStem + ".files"
-        let new = newStem + ".files"
-        // Replace both `./old.files/` and bare `old.files/` path prefixes.
-        let withDot = markdown.replacingOccurrences(
-            of: "./\(old)/", with: "./\(new)/")
-        return withDot.replacingOccurrences(of: "\(old)/", with: "\(new)/")
+        let old = oldStem + ".files/"
+        let new = newStem + ".files/"
+        return markdown.replacingOccurrences(of: old, with: new)
     }
 
     /// Returns the on-disk attachment directory for a note, **creating it if

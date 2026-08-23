@@ -20,9 +20,15 @@ final class WorkspaceManager {
     /// used to detect external changes to *that* note (T095).
     var openedNotePath: String?
 
-    /// True while the app itself writes a note (atomic save), so the watcher
-    /// does not treat it as an *external* change (T095, no self-trigger).
-    var isSelfWrite = false
+    /// On-disk stamps (size + mtime) of the app's own most recent writes,
+    /// keyed by workspace-relative path (T095, no self-trigger).
+    ///
+    /// The watcher is poll-based: an app-originated atomic save is observed
+    /// as a `.modified` on a *later* scan, so a boolean cleared right after
+    /// the synchronous write cannot suppress that echo. Matching the on-disk
+    /// stamp instead is timing-independent — a genuine external write carries
+    /// a different stamp and still fires the conflict.
+    private var selfWriteStamps: [String: WorkspaceWatcher.FileStamp] = [:]
 
     /// Monotonic counter bumped whenever an external change touches the open
     /// note; the view observes this to react (reload / conflict, T095).
@@ -227,20 +233,47 @@ case .modified:
         return try? String(contentsOf: fileURL, encoding: .utf8)
     }
 
-    /// Removes a note from the search index after its file was deleted
-    /// (T047 / T093). Off the main actor; missing DB is a no-op; failures log.
-    /// Flags that the currently-open note was changed externally (a file
-    /// outside the app modified/deleted it), so the view can reload or prompt
-    /// for conflict resolution (T095). Suppressed while the app itself is
-    /// writing (atomic save → no self-trigger). Never drops User Data: the view
-    /// decides whether to reload, keep local edits, or warn.
+/// Flags that the currently-open note was changed by a source other than
+    /// this app, so the view can reload or prompt for conflict resolution
+    /// (T095). Suppressed for the app's own write echo. Never drops user data:
+    /// the view decides whether to reload, keep local edits, or warn.
     private func notifyOpenNoteChanged(_ change: WorkspaceChange) {
-        guard !isSelfWrite else { return }
         guard let opened = openedNotePath, opened == change.path else { return }
-        lastExternalChange = (change.path, change.kind == .deleted)
+        // The app's own atomic save echoes back as `.modified` on the watcher's
+        // next poll (async, some time after the synchronous write). Suppress it
+        // by matching the on-disk stamp recorded when we wrote — a real external
+        // edit changes the stamp and is not suppressed (T095, no self-trigger).
+        if change.kind == .modified,
+           let wrote = selfWriteStamps[opened],
+           let now = Self.stamp(of: opened, relative: workspaceURL),
+           now == wrote {
+            return
+        }
+        lastExternalChange = (opened, change.kind == .deleted)
         externalEventID += 1
     }
 
+    /// Records the current on-disk stamp of a note the app just wrote, so the
+    /// watcher's delayed `.modified` echo is not misread as an external change
+    /// (T095). Call immediately after an app-originated atomic save.
+    func recordSelfWrite(at relativePath: String) {
+        guard let stamp = Self.stamp(of: relativePath, relative: workspaceURL) else { return }
+        selfWriteStamps[relativePath] = stamp
+    }
+
+    /// Reads a relative note's file stamp (size + sub-second mtime), matching
+    /// `FileStamp` / `WorkspaceWatcher` precision so equality is dependable.
+    private static func stamp(of relativePath: String, relative root: URL?) -> WorkspaceWatcher.FileStamp? {
+        guard let root else { return nil }
+        let url = root.appendingPathComponent(relativePath)
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let size = (attrs[.size] as? NSNumber)?.int64Value,
+              let mtime = (attrs[.modificationDate] as? Date)?.timeIntervalSince1970 else { return nil }
+        return WorkspaceWatcher.FileStamp(size: size, mtime: mtime)
+    }
+
+    /// Removes a note from the search index after its file was deleted
+    /// (T047 / T093). Off the main actor; missing DB is a no-op; failures log.
     func removeIndex(forNoteAt relativePath: String) {
         guard let queue = databaseQueue else { return }
         Task.detached(priority: .utility) {

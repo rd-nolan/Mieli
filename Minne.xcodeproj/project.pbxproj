@@ -14,6 +14,8 @@
 		0A1000000000000000000006 /* WorkspaceItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1000000000000000000016 /* WorkspaceItem.swift */; };
 		0A1000000000000000000007 /* WorkspaceScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1000000000000000000017 /* WorkspaceScanner.swift */; };
 		0A1000000000000000000134 /* WorkspaceWatcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1000000000000000000135 /* WorkspaceWatcherTests.swift */; };
+		0A1000000000000000000136 /* WorkspaceExternalChangeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1000000000000000000137 /* WorkspaceExternalChangeTests.swift */; };
+		0A1000000000000000000140 /* EndToEndWorkflowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1000000000000000000141 /* EndToEndWorkflowTests.swift */; };
 		0A1000000000000000000132 /* WorkspaceWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1000000000000000000133 /* WorkspaceWatcher.swift */; };
 		0A1000000000000000000008 /* WorkspaceScannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1000000000000000000018 /* WorkspaceScannerTests.swift */; };
 		0A1000000000000000000009 /* WorkspaceCreateFolderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1000000000000000000019 /* WorkspaceCreateFolderTests.swift */; };
@@ -70,6 +72,8 @@
 		0A1000000000000000000133 /* WorkspaceWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceWatcher.swift; sourceTree = "<group>"; };
 		0A1000000000000000000018 /* WorkspaceScannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceScannerTests.swift; sourceTree = "<group>"; };
 		0A1000000000000000000135 /* WorkspaceWatcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceWatcherTests.swift; sourceTree = "<group>"; };
+		0A1000000000000000000137 /* WorkspaceExternalChangeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceExternalChangeTests.swift; sourceTree = "<group>"; };
+		0A1000000000000000000141 /* EndToEndWorkflowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EndToEndWorkflowTests.swift; sourceTree = "<group>"; };
 		0A1000000000000000000019 /* WorkspaceCreateFolderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCreateFolderTests.swift; sourceTree = "<group>"; };
 		0A100000000000000000001A /* WorkspaceCreateNoteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCreateNoteTests.swift; sourceTree = "<group>"; };
 		0A100000000000000000001B /* WorkspaceRenameFolderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRenameFolderTests.swift; sourceTree = "<group>"; };
@@ -260,6 +264,8 @@
 				0A1000000000000000000015 /* WorkspaceBookmarkTests.swift */,
 				0A1000000000000000000018 /* WorkspaceScannerTests.swift */,
 				0A1000000000000000000135 /* WorkspaceWatcherTests.swift */,
+				0A1000000000000000000137 /* WorkspaceExternalChangeTests.swift */,
+				0A1000000000000000000141 /* EndToEndWorkflowTests.swift */,
 				0A1000000000000000000019 /* WorkspaceCreateFolderTests.swift */,
 				0A100000000000000000001A /* WorkspaceCreateNoteTests.swift */,
 				0A100000000000000000001B /* WorkspaceRenameFolderTests.swift */,
@@ -450,6 +456,8 @@
 				0A1000000000000000000005 /* WorkspaceBookmarkTests.swift in Sources */,
 				0A1000000000000000000008 /* WorkspaceScannerTests.swift in Sources */,
 				0A1000000000000000000134 /* WorkspaceWatcherTests.swift in Sources */,
+				0A1000000000000000000136 /* WorkspaceExternalChangeTests.swift in Sources */,
+				0A1000000000000000000140 /* EndToEndWorkflowTests.swift in Sources */,
 				0A1000000000000000000009 /* WorkspaceCreateFolderTests.swift in Sources */,
 				0A100000000000000000000A /* WorkspaceCreateNoteTests.swift in Sources */,
 				0A100000000000000000000B /* WorkspaceRenameFolderTests.swift in Sources */,

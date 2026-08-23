@@ -9,10 +9,13 @@
  * the WKScriptMessage channel is wired in T063.
  */
 
-import { Editor, rootCtx, defaultValueCtx, editorViewCtx } from "@milkdown/core";
+import { Editor, rootCtx, defaultValueCtx, editorViewCtx, inputRulesCtx, SchemaReady } from "@milkdown/core";
 import { commonmark } from "@milkdown/preset-commonmark";
-import { serializerCtx, parserCtx, remarkStringifyOptionsCtx, prosePluginsCtx } from "@milkdown/core";
-import { Plugin } from "@milkdown/prose/state";
+import { serializerCtx, parserCtx, remarkStringifyOptionsCtx, prosePluginsCtx, remarkPluginsCtx } from "@milkdown/core";
+import { Plugin, TextSelection } from "@milkdown/prose/state";
+import { $markSchema } from "@milkdown/utils";
+import remarkGfm from "remark-gfm";
+import { visit } from "unist-util-visit";
 import "@milkdown/theme-nord/style.css";
 
 const HOST_ID = "editor"; // matches the host placeholder in editor.html
@@ -37,6 +40,195 @@ const changeNotifier = new Plugin({
 });
 
 let suppressNotify = false;
+
+// Milkdown's commonmark preset registers as-you-type rules that turn a
+// leading prefix (`# `, `- `, `> `, `1. ` …) into a heading/list/quote and
+// swallow the prefix as soon as it's typed. For a "type raw Markdown, convert
+// on Enter" experience we disable those *block-level wrapping* rules so the
+// prefix stays visible while typing; conversion happens on Enter (blockOnEnter
+// below). Inline formats (bold, italic, code…) are left alone.
+const BLOCK_WRAP_RULES = [
+  "^(?<hashes>#+)\\s$",        // heading
+  "^\\s*>\\s$",                // blockquote
+  "^\\s*([-+*])\\s$",          // bullet list
+  "^\\s*(\\d+)\\.\\s$",        // ordered list
+];
+function isBlockWrapInputRule(rule) {
+  if (!rule?.match) return false;
+  const src = String(rule.match.source);
+  return BLOCK_WRAP_RULES.includes(src);
+}
+const disableBlockWrapInputRules = (ctx) => async () => {
+  await ctx.wait(SchemaReady);
+  ctx.update(inputRulesCtx, (rules) => rules.filter((r) => !isBlockWrapInputRule(r)));
+  return () => {};
+};
+
+// Absolute document position just past the innermost text of `node` placed at
+// `startPos`. Drills through wrapper nodes (list_item → paragraph → text…)
+// so the caret lands exactly after the content, enabling natural list splits.
+function caretAfterText(startPos, node) {
+  let pos = startPos;
+  let cur = node;
+  while (cur.childCount) {
+    pos += 1;
+    cur = cur.child(0);
+  }
+  // `cur` is the leaf text node; its nodeSize equals the text length (no +2
+  // wrapper delimiters), so the caret sits right after the last character.
+  return pos + cur.nodeSize;
+}
+
+// remark-gfm + a guard so task-list checkboxes never lose data. remark-gfm
+// parses `- [ ] foo` into a listItem with a `checked` attr and drops that mark
+// on save (remark-stringify has no checkbox handler) — that would silently
+// erase the `[ ]`/`[x]` from the user's Markdown, which Minne must not do.
+// This transform rewrites a checked listItem back into its literal `[ ] `text
+// so the round trip preserves it exactly.
+const taskListGuard = () => (tree) => {
+  visit(tree, "listItem", (node) => {
+    if (node.checked === null || node.checked === undefined) return;
+    const label = node.checked ? "[x]" : "[ ]";
+    const first = node.children?.[0];
+    if (first?.type === "paragraph") {
+      first.children.unshift({ type: "text", value: label + " " });
+      delete node.checked;
+    }
+  });
+};
+
+// GFM delete/strike: supports `~~text~~` → <del>. Enabled by remarkGfm
+// (registered via remarkPluginsCtx) which parses `~~` as a `delete` node; this
+// mark then maps it to a ProseMirror mark and serializes it back as `~~text~~`.
+const strikeSchema = $markSchema("strike", () => ({
+  parseDOM: [
+    { tag: "del" },
+    { tag: "s" },
+    { style: "text-decoration", getAttrs: (v) => (v === "line-through" ? null : false) },
+  ],
+  toDOM: (mark) => ["del", { class: "strike" }, 0],
+  parseMarkdown: {
+    match: (node) => node.type === "delete",
+    runner: (state, node, markType) => {
+      state.openMark(markType);
+      state.next(node.children);
+      state.closeMark(markType);
+    },
+  },
+  toMarkdown: {
+    match: (mark) => mark.type.name === "strike",
+    runner: (state, mark) => {
+      // NOTE: must return undefined (not the Serializer) so the text node
+      // following this mark is still emitted into the open `delete` node.
+      state.withMark(mark, "delete");
+    },
+  },
+}));
+
+// Converts a paragraph whose whole text is a Markdown block prefix into the
+// corresponding block when the user presses Enter. So `# foo`, `- bar`,
+// `> quote`, `1. item` show as-typed while editing and become a real heading /
+// list item / quote / ordered item only on Enter. The prefix is stripped and
+// the caret is placed after the text so further typing continues inside the
+// new block (ProseMirror then handles list continuations).
+const blockOnEnter = new Plugin({
+  props: {
+    handleKeyDown(view, event) {
+      if (event.key !== "Enter" || event.shiftKey) return false;
+      const { state } = view;
+      const { $head } = state.selection;
+      // Normalize so that top-level blocks (depth 1) and blocks inside a list
+      // item (depth ≥ 2) are both handled. We only run on plain paragraphs.
+      const inListItem = (() => {
+        for (let d = $head.depth; d > 0; d--) {
+          const n = $head.node(d);
+          if (n.type.name === "list_item") return true;
+          if (n.type.isBlock && n.type.name !== "paragraph") break;
+        }
+        return false;
+      })();
+      const node = $head.parent;
+      if (!node.isTextblock || node.type.name !== "paragraph") return false;
+      if ($head.depth !== 1 && !inListItem) return false;
+      const text = node.textContent;
+
+      let body = "";
+      let makeBlock = null; // () => ProseMirrorNode
+
+      // Inside an existing list item the user may type `- ab` / `* ab` as the
+      // item text; without handling, Milkdown escapes it to `\- ab`. When the
+      // whole item paragraph is just a list-marker prefix plus content, strip
+      // the marker so it stays a clean single item (no backslash escape).
+      if (inListItem) {
+        let mm = /^[-*+]\s+(.+)$/.exec(text) || /^\d+\.\s+(.+)$/.exec(text);
+        if (mm && mm[1] && !/^\s*$/.test(mm[1])) {
+          const itemText = mm[1];
+          const pStart = $head.before($head.depth);
+          const pEnd = pStart + node.nodeSize;
+          let tr = state.tr.replaceWith(pStart, pEnd, node.type.create(null, state.schema.text(itemText)));
+          tr = tr.setSelection(TextSelection.create(tr.doc, pStart + itemText.length));
+          view.dispatch(tr);
+          return true; // consume Enter; don't spawn an empty next item
+        }
+      }
+
+      // Fenced heading: `### abc`
+      let m = /^(#{1,6})(?:[ \t]+|)(.+)$/.exec(text);
+      if (m && m[2] && !/^\s*$/.test(m[2])) {
+        const headingType = state.schema.nodes.heading;
+        if (headingType) {
+          const level = m[1].length;
+          body = m[2];
+          makeBlock = () => headingType.create({ level }, headingType.schema.text(body));
+        }
+      }
+if (!makeBlock && (m = /^\s*[-*+]\s+(.+)$/.exec(text)) && m[1] && !/^\s*$/.test(m[1])) {
+        const schema = state.schema;
+        if (schema.nodes.bullet_list && schema.nodes.list_item) {
+          body = m[1];
+          makeBlock = () =>
+            schema.nodes.bullet_list.create(null,
+              schema.nodes.list_item.create(null,
+                schema.nodes.paragraph.create(null, schema.text(body))));
+        }
+      }
+      // Ordered list: `1. abc`
+      if (!makeBlock && (m = /^\s*\d+\.\s+(.+)$/.exec(text)) && m[1] && !/^\s*$/.test(m[1])) {
+        const schema = state.schema;
+        if (schema.nodes.ordered_list && schema.nodes.list_item) {
+          body = m[1];
+          makeBlock = () =>
+            schema.nodes.ordered_list.create(null,
+              schema.nodes.list_item.create(null,
+                schema.nodes.paragraph.create(null, schema.text(body))));
+        }
+      }
+      // Blockquote: `> abc`
+      if (!makeBlock && (m = /^\s*>\s+(.+)$/.exec(text)) && m[1] && !/^\s*$/.test(m[1])) {
+        const schema = state.schema;
+        if (schema.nodes.blockquote) {
+          body = m[1];
+          makeBlock = () =>
+            schema.nodes.blockquote.create(null,
+              schema.nodes.paragraph.create(null, schema.text(body)));
+        }
+      }
+
+if (!makeBlock) return false;
+      const startPos = $head.before($head.depth);
+      const endPos = startPos + node.nodeSize;
+      const newBlock = makeBlock();
+      let tr = state.tr.replaceWith(startPos, endPos, newBlock);
+      // Put the caret right after the new block's leaf text (drill through
+      // wrapper nodes to the innermost text node and sit just past it), so a
+      // following Enter splits a fresh list item / paragraph naturally.
+      const cursor = caretAfterText(startPos, newBlock);
+      tr = tr.setSelection(TextSelection.create(tr.doc, cursor));
+      view.dispatch(tr.scrollIntoView());
+      return true;
+    },
+  },
+});
 
 /** Current Markdown content — absolute base URI of the open note's folder
  *  (e.g. `file:///…/工作/`), injected by the native side (T085). Relative
@@ -90,38 +282,131 @@ function watchImages(root) {
   root.querySelectorAll("img").forEach(patchImageSrc);
 }
 
+
 async function boot() {
   const editor = await Editor.make()
     .config((ctx) => {
-      ctx.set(rootCtx, HOST_ID);
+      // Mount into the host placeholder. Pass the element itself (unambiguous)
+      // rather than a selector string — Milkdown's rootCtx resolves a string
+      // via document.querySelector, so a bare tag name like "editor" matches
+      // nothing and the ProseMirror view silently mounts nowhere (T061 blank).
+      const host = document.getElementById(HOST_ID);
+      if (host) ctx.set(rootCtx, host);
       ctx.set(defaultValueCtx, "");
       // Keep unordered lists using `-` (remark-stringify default is `*`).
-      ctx.set(remarkStringifyOptionsCtx, { bullet: "-" });
-      // Report document changes to the native host (T063).
-      ctx.set(prosePluginsCtx, [...ctx.get(prosePluginsCtx), changeNotifier]);
+      // A `delete` markdown node (from `~~text~~` via remark-gfm) has no
+      // default handler in Milkdown, so it would otherwise serialize to an
+      // empty `~~~~`; add one that writes `~~text~~` (merging so Milkdown's
+      // own text/strong/emphasis handlers are preserved).
+      ctx.update(remarkStringifyOptionsCtx, (opts) => ({
+        ...opts,
+        bullet: "-",
+        handlers: {
+          ...opts.handlers,
+          delete: (node, _, state, info) => {
+            const marker = "~~";
+            const exit = state.enter("delete");
+            const tracker = state.createTracker(info);
+            let value = tracker.move(marker);
+            value += tracker.move(
+              state.containerPhrasing(node, {
+                before: value,
+                after: marker,
+                ...tracker.current(),
+              })
+            );
+            value += tracker.move(marker);
+            exit();
+            return value;
+          },
+        },
+      }));
+      // Enable GFM (deletestrike `~~`, tables, autolinks) and guard task boxes.
+      ctx.update(remarkPluginsCtx, (plugins) => [
+        ...plugins,
+        { plugin: remarkGfm },
+        { plugin: taskListGuard },
+      ]);
+      // Report document changes to the native host (T063) + Enter-to-block.
+      ctx.set(prosePluginsCtx, [
+        ...ctx.get(prosePluginsCtx),
+        changeNotifier,
+        blockOnEnter,
+      ]);
     })
     .use(commonmark)
+    .use(disableBlockWrapInputRules)
+    .use(strikeSchema)
     .create();
+
+  // T085: absolutize local image srcs against the note's folder.
+  const view = editor.action((ctx) => ctx.get(editorViewCtx));
+  watchImages(view.dom);
+
+  // YAML metadata keys that identify a real front-matter block; we only strip
+  // when at least one is present so a normal top-of-file horizontal rule
+  // (e.g. a bare `---`) is never mistaken for a header.
+  const FM_KEY = /^([ \t]*)([a-zA-Z_-]+)\s*:/m;
+  const FM_KEYS = ["id", "title", "tags", "created", "updated", "modified", "date"];
+
+  // Split a YAML front-matter block off `text`. Accepts the canonical `---`/`---`
+  // delimiters *and* a corrupted variant (AGENTS §9 data has historically been
+  // mangled by an old editor bug into `***`…long-dashes). A block counts only
+  // when its content is YAML-like (contains an `xxx:` line whose key is a known
+  // metadata key). Returns { front, body }; `front` retains the original bytes
+  // so it round-trips unchanged, `body` is what the editor edits/renders.
+  function splitFrontMatter(md) {
+    const text = String(md ?? "");
+    const delims = "-\\*_"; // -, *, _ are all valid block fences
+    // opening fence must be a run of a single kind at line start
+    const pattern = new RegExp(
+      "^([" + delims + "])\\1{2,}[ \\t]*\\r?\\n" + // fence: --- | *** | ___
+      "([\\s\\S]*?)\\r?\\n" +
+      "([" + delims + "])\\3{2,}[ \\t]*(?:\\r?\\n|$)",
+      "i"
+    );
+    const m = pattern.exec(text);
+    if (!m) return { front: "", body: text };
+    const content = m[2];
+    // Only treat as front matter when the block looks like YAML metadata.
+    const keyHit = FM_KEY.test(content);
+    const knownKey = keyHit && FM_KEYS.some((k) => new RegExp(`^[ \\t]*${k}\\s*:`, "m").test(content));
+    if (!knownKey) return { front: "", body: text };
+
+    const head = text.slice(0, m[0].length); // fences + content + trailing newline
+    let body = text.slice(m[0].length);
+    body = body.replace(/^\s*\r?\n/, ""); // drop blank separator before first line
+    return { front: head, body };
+  }
+  function joinFrontMatter(front, body) {
+    if (!front) return body;
+    return front + "\n" + body;
+  }
+  let currentFrontMatter = ""; // original header block, restored on save
 
   // Minimal public API for the native side. Markdown is the single source of
   // truth: getMarkdown() returns what would be persisted, setMarkdown() loads it.
   window.minneEditor = {
     /** Current content serialized to Markdown ('' when empty). */
     getMarkdown() {
-      return editor.action((ctx) => {
-        const md = ctx.get(serializerCtx)(ctx.get(editorViewCtx).state.doc);
-        return md || "";
+      const body = editor.action((ctx) => {
+        return ctx.get(serializerCtx)(ctx.get(editorViewCtx).state.doc) || "";
       });
+      return joinFrontMatter(currentFrontMatter, body);
     },
 
     /** Replaces the editor content with Markdown `md`. */
     setMarkdown(md) {
+      // Strip the YAML header so it is neither shown nor editable in the
+      // WYSIWYG view; the original block is restored on getMarkdown/save.
+      const { front, body } = splitFrontMatter(md);
+      currentFrontMatter = front || "";
       editor.action((ctx) => {
-        const view = ctx.get(editorViewCtx);
-        const doc = ctx.get(parserCtx)(String(md ?? ""));
-        const tr = view.state.tr.replaceWith(0, view.state.doc.content.size, doc.content);
+        const v = ctx.get(editorViewCtx);
+        const doc = ctx.get(parserCtx)(body);
+        const tr = v.state.tr.replaceWith(0, v.state.doc.content.size, doc.content);
         suppressNotify = true;
-        view.dispatch(tr);
+        v.dispatch(tr);
         suppressNotify = false;
       });
     },
@@ -169,9 +454,6 @@ async function boot() {
   // note's `.files/` folder and returns the Markdown to insert (T83). We
   // leave the copy + relative-link work to Swift (AttachmentService); the
   // editor merely reports the drop and later receives the fragment to insert.
-  const view = editor.action((ctx) => ctx.get(editorViewCtx));
-  // T085: absolutize local image srcs against the note's folder.
-  watchImages(view.dom);
   view.dom.addEventListener("drop", (e) => {
     const file = e.dataTransfer?.files?.[0];
     if (!file) return;

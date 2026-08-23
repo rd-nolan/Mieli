@@ -663,18 +663,18 @@ struct ContentView: View {
               let path = pendingPath,
               let root = workspace.workspaceURL else { return }
         let url = root.appendingPathComponent(path)
-        workspace.isSelfWrite = true
         do {
             try FileService.saveMarkdown(md, to: url)
+            // Record the stamp our own write produced so the watcher's delayed
+            // `.modified` echo is not mistaken for an external change (T095).
+            workspace.recordSelfWrite(at: path)
             hasUnsaved = false // this edit now persisted
         } catch {
             logger.error("Save failed for \(path, privacy: .public): \(error.localizedDescription, privacy: .public)")
-            workspace.isSelfWrite = false
             // T105: a failed save risks data loss (AGENTS §5) — surface it.
             showError("保存「\(path)」失败：\(error.localizedDescription)\n内容仍保留在编辑器中，请重试。")
             return
         }
-        workspace.isSelfWrite = false
         // T066: keep the search index in sync with the saved content.
         workspace.refreshIndex(forNoteAt: path)
     }
