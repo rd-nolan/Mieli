@@ -16,23 +16,23 @@
   <style>
     :root {
       --minne-label-quote: "Quote";
-      --minne-label-unordered-list: "Unordered List";
-      --minne-label-ordered-list: "Ordered List";
-      --minne-label-task-list: "Task List";
+      --minne-label-unordered-list: "List";
+      --minne-label-ordered-list: "Numbered";
+      --minne-label-task-list: "Task";
       --minne-label-table: "Table";
       --minne-label-divider: "Divider";
-      --minne-label-code: "Code Block";
+      --minne-label-code: "Code";
       --minne-hint-code-exit: "⌘ Return to exit";
     }
     :root:lang(zh-Hans),
     :root:lang(zh) {
       --minne-label-quote: "引用";
-      --minne-label-unordered-list: "无序列表";
-      --minne-label-ordered-list: "有序列表";
-      --minne-label-task-list: "任务列表";
+      --minne-label-unordered-list: "列表";
+      --minne-label-ordered-list: "序号";
+      --minne-label-task-list: "任务";
       --minne-label-table: "表格";
-      --minne-label-divider: "分隔线";
-      --minne-label-code: "代码块";
+      --minne-label-divider: "分隔";
+      --minne-label-code: "代码";
       --minne-hint-code-exit: "⌘ Return 跳出";
     }
     body {
@@ -148,6 +148,7 @@
       color: rgba(60, 60, 67, 0.48);
       writing-mode: vertical-rl;
       text-orientation: upright;
+      white-space: nowrap;
       pointer-events: none;
       user-select: none;
     }

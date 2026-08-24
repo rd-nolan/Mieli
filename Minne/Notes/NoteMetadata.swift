@@ -16,22 +16,22 @@ enum NoteMetadataFactory {
     /// Renders the full Markdown content for a new note.
     ///
     /// - Parameters:
-    ///   - title: the note title, also used as the body H1.
+    ///   - title: optional title. When empty or not supplied, the note body starts empty.
     ///   - id: reuse an existing stable id when supplied (e.g. rename); a fresh
     ///         ULID is generated when `nil`.
     ///   - now: timestamp stamped into `created`/`updated` (defaults to now).
-    static func makeNoteContent(title: String, id: String? = nil, now: Date = Date()) -> String {
+    static func makeNoteContent(title: String = "", id: String? = nil, now: Date = Date()) -> String {
         let noteID = id ?? NoteID.generate()
         let iso = isoFormatter.string(from: now)
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let body = trimmedTitle.isEmpty ? "" : "\n\n# \(trimmedTitle)"
         return """
         ---
         id: \(noteID)
         tags: []
         created: \(iso)
         updated: \(iso)
-        ---
-
-        # \(title)
+        ---\(body)
         """
     }
 }

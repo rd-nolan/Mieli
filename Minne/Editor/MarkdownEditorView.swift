@@ -34,6 +34,72 @@ struct MarkdownEditorView: NSViewRepresentable {
         let isImage: Bool
     }
 
+    /// Custom WKWebView subclass that strips browser navigation and reload actions
+    /// from the context menu while preserving editor and text operations.
+    final class EditorWebView: WKWebView {
+        override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
+            super.willOpenMenu(menu, with: event)
+            Self.stripNavigationItems(from: menu)
+        }
+
+        override func menu(for event: NSEvent) -> NSMenu? {
+            guard let menu = super.menu(for: event) else { return nil }
+            Self.stripNavigationItems(from: menu)
+            return menu
+        }
+
+        static func stripNavigationItems(from menu: NSMenu) {
+            let blockedActionNames: Set<String> = [
+                "reload:",
+                "_reload:",
+                "reloadFromOrigin:",
+                "_reloadFromOrigin:",
+                "goBack:",
+                "_goBack:",
+                "goForward:",
+                "_goForward:",
+                "stopLoading:",
+                "_stopLoading:"
+            ]
+
+            for item in menu.items.reversed() {
+                if let submenu = item.submenu {
+                    stripNavigationItems(from: submenu)
+                }
+                let actionName = item.action.map(NSStringFromSelector) ?? ""
+                let identifier = item.identifier?.rawValue.lowercased() ?? ""
+                let title = item.title.trimmingCharacters(in: .whitespacesAndNewlines)
+
+                if blockedActionNames.contains(actionName)
+                    || identifier.contains("reload")
+                    || identifier.contains("goback")
+                    || identifier.contains("goforward")
+                    || title == "Reload"
+                    || title == "重新载入"
+                    || title == "重新加載" {
+                    menu.removeItem(item)
+                }
+            }
+
+            // Clean up redundant leading, trailing, or double separators
+            var previousWasSeparator = true
+            for item in menu.items.reversed() {
+                if item.isSeparatorItem {
+                    if previousWasSeparator {
+                        menu.removeItem(item)
+                    } else {
+                        previousWasSeparator = true
+                    }
+                } else {
+                    previousWasSeparator = false
+                }
+            }
+            if let first = menu.items.first, first.isSeparatorItem {
+                menu.removeItem(first)
+            }
+        }
+    }
+
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -41,7 +107,7 @@ struct MarkdownEditorView: NSViewRepresentable {
         config.websiteDataStore = .nonPersistent()
         config.userContentController.add(context.coordinator, name: MarkdownEditorView.changeHandlerName)
 
-        let webView = WKWebView(frame: .zero, configuration: config)
+        let webView = EditorWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = context.coordinator
 
         // Load the bundled editor host page (Milkdown mounts on #editor).
@@ -77,6 +143,8 @@ struct MarkdownEditorView: NSViewRepresentable {
 
         init(parent: MarkdownEditorView) {
             self.parent = parent
+            self.pendingMarkdown = parent.markdown
+            self.appliedFocusRequest = parent.focusRequest
         }
 
         /// Called by `updateNSView` on every SwiftUI refresh, and after the
@@ -94,9 +162,25 @@ struct MarkdownEditorView: NSViewRepresentable {
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             hostView = webView
             didFinish = true
+            if pendingMarkdown.isEmpty && !parent.markdown.isEmpty {
+                pendingMarkdown = parent.markdown
+            }
+            injectedMarkdown = nil
+            injectedImageBase = nil
+            injectedLanguage = nil
             injectIfNeeded()
             injectLanguageIfNeeded()
             focusIfNeeded()
+        }
+
+        func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+            injectedMarkdown = nil
+            injectedImageBase = nil
+            injectedLanguage = nil
+            didFinish = false
+            if let url = Bundle.main.url(forResource: "editor", withExtension: "html") {
+                webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+            }
         }
 
         // MARK: - WKScriptMessageHandler

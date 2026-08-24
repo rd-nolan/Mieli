@@ -138,7 +138,7 @@ struct ContentView: View {
     private var baseView: some View {
         NavigationSplitView {
             sidebar
-                .navigationSplitViewColumnWidth(min: 180, ideal: 220)
+                .navigationSplitViewColumnWidth(min: 280, ideal: 280, max: 400)
                 .toolbar {
                     ToolbarItemGroup {
                         Button {
@@ -261,7 +261,7 @@ struct ContentView: View {
                 tagInputFocused = true
             }
         }
-        .frame(minWidth: 640, minHeight: 400)
+        .frame(minWidth: 680, minHeight: 400)
         .overlay { if workspace.workspaceURL == nil { emptyState } }
     }
 
@@ -368,9 +368,6 @@ struct ContentView: View {
                         }
                     }
                     if item.kind == .note {
-                        Button(appLanguage.text("Move to…")) {
-                            moveToFolder(item)
-                        }
                         Divider()
                         Button(role: .destructive) {
                             deletingItem = item
@@ -501,6 +498,9 @@ struct ContentView: View {
         }
         guard trimmed != sidebarDisplayName(for: item) else {
             cancelRename()
+            if item.kind == .note {
+                editorFocusRequest += 1
+            }
             return
         }
 
@@ -520,6 +520,9 @@ struct ContentView: View {
 
         if succeeded {
             cancelRename()
+            if item.kind == .note {
+                editorFocusRequest += 1
+            }
         } else {
             showError(appLanguage.text("Rename failed: the name is invalid or already in use."))
             focusRenameField()
@@ -557,27 +560,6 @@ struct ContentView: View {
             "Permanently delete the empty folder “%@”? This action cannot be undone.",
             name
         )
-    }
-
-/// Picks a destination folder in the workspace and moves `item` (a note)
-    /// there. Cancellation is a silent no-op; a selection outside the workspace
-    /// is rejected by the manager.
-    private func moveToFolder(_ item: WorkspaceItem) {
-        guard let root = workspace.workspaceURL else { return }
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.canCreateDirectories = true
-        panel.directoryURL = root
-        panel.prompt = appLanguage.text("Move Here")
-
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        guard let relative = workspace.relativeWorkspacePath(of: url) else { return }
-        if !workspace.moveNote(at: item.relativePath, toDirectory: relative) {
-            // T105: only user-initiated errors. Cancellation returns earlier.
-            showError(appLanguage.text("Could not move the note: the destination is invalid or contains a note with the same name."))
-        }
     }
 
     /// Creates a real folder immediately, then selects its default name in the
@@ -872,7 +854,8 @@ struct ContentView: View {
                 .background(.quaternary, in: Capsule())
             }
 
-            if tags.isEmpty {
+            let isInputActive = showingAddTag && addTagPath == notePath
+            if tags.isEmpty && !isInputActive {
                 Text(appLanguage.text("No Tags"))
                     .font(.caption)
                     .foregroundStyle(.tertiary)
@@ -1125,7 +1108,9 @@ struct ContentView: View {
     /// enough for the SwiftUI type-checker.
     @ViewBuilder
     private func noteDetail(notePath path: String) -> some View {
-        let md = workspace.readNote(at: path) ?? ""
+        let md = (pendingPath == path && pendingMarkdown != nil)
+            ? pendingMarkdown!
+            : (workspace.readNote(at: path) ?? "")
         let noteParentURL = workspace.workspaceURL?
             .appendingPathComponent(path)
             .deletingLastPathComponent()

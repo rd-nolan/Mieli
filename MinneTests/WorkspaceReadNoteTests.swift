@@ -33,10 +33,10 @@ final class WorkspaceReadNoteTests: XCTestCase {
     func testReadExistingNoteReturnsContent() {
         XCTAssertTrue(manager.createNote(at: "A"))
         let content = manager.readNote(at: "A.md")
-        // createNote writes Front Matter + a title heading.
+        // createNote writes Front Matter.
         XCTAssertNotNil(content)
-        XCTAssertTrue(content?.contains("# A") == true)
         XCTAssertTrue(content?.hasPrefix("---") == true)
+        XCTAssertTrue(content?.hasSuffix("---\n") == true)
     }
 
     @MainActor
@@ -47,7 +47,7 @@ final class WorkspaceReadNoteTests: XCTestCase {
         XCTAssertTrue(manager.createNote(at: "项目A/笔记"))
         let content = manager.readNote(at: "项目A/笔记.md")
         XCTAssertNotNil(content)
-        XCTAssertTrue(content?.contains("# 笔记") == true)
+        XCTAssertTrue(content?.hasPrefix("---") == true)
     }
 
     @MainActor

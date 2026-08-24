@@ -216,8 +216,7 @@ case .modified:
             return false
         }
 
-        let title = fileURL.deletingPathExtension().lastPathComponent
-        let content = NoteMetadataFactory.makeNoteContent(title: title) + "\n"
+        let content = NoteMetadataFactory.makeNoteContent() + "\n"
 
         do {
             // Ensure enclosing folders exist (e.g. 工作/项目A).

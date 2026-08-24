@@ -284,6 +284,7 @@ const missingBlockLabels = verticalBlockLabels.filter(([selector, content]) => {
 const mermaidLabelOK = /\.ProseMirror\s+pre\[data-language=["']mermaid["']\]::before\s*\{[^}]*content:\s*["']Mermaid["']/s
   .test(html);
 const verticalLabelLayoutOK = /writing-mode:\s*vertical-rl/.test(sharedBlockLabelRule)
+  && /white-space:\s*nowrap/.test(sharedBlockLabelRule)
   && /right:\s*calc\(100%\s*\+/.test(sharedBlockLabelRule);
 const headingLabelRules = [...html.matchAll(
   /\.ProseMirror\s*>\s*h1::before,[\s\S]*?\.ProseMirror\s*>\s*h6::before\s*\{([^}]*)\}/gs,
@@ -301,8 +302,8 @@ console.log(headingLabelCombinationOK
   : "FAIL  combined upright heading labels");
 if (!headingLabelCombinationOK) process.exitCode = 1;
 
-const editorLanguageVariablesOK = /:root\s*\{[^}]*--minne-label-code:\s*["']Code Block["'][^}]*--minne-hint-code-exit:\s*["']⌘ Return to exit["']/s.test(html)
-  && /:root:lang\(zh-Hans\)[^{]*\{[^}]*--minne-label-code:\s*["']代码块["'][^}]*--minne-hint-code-exit:\s*["']⌘ Return 跳出["']/s.test(html);
+const editorLanguageVariablesOK = /:root\s*\{[^}]*--minne-label-code:\s*["']Code["'][^}]*--minne-hint-code-exit:\s*["']⌘ Return to exit["']/s.test(html)
+  && /:root:lang\(zh-Hans\)[^{]*\{[^}]*--minne-label-code:\s*["']代码["'][^}]*--minne-hint-code-exit:\s*["']⌘ Return 跳出["']/s.test(html);
 const codeBlockExitHintOK = /\.ProseMirror\s+pre::after\s*\{[^}]*content:\s*var\(--minne-hint-code-exit\)/s.test(html)
   && editorLanguageVariablesOK;
 console.log(codeBlockExitHintOK

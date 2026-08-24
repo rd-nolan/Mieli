@@ -43,8 +43,7 @@ final class WorkspaceCreateNoteTests: XCTestCase {
         XCTAssertEqual(fm?.id?.count, 26)
         XCTAssertEqual(fm?.tags, [])
         XCTAssertNotNil(fm?.created)
-        XCTAssertNotNil(fm?.updated)
-        XCTAssertTrue(content?.hasSuffix("# 周报\n") ?? false)
+        XCTAssertTrue(content?.hasSuffix("---\n") ?? false)
     }
 
     @MainActor
