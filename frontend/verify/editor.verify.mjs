@@ -6,14 +6,14 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const res = path.resolve(__dirname, "../../Muisti/Resources");
+const res = path.resolve(__dirname, "../../Mieli/Resources");
 
 const html = readFileSync(path.join(res, "editor.html"), "utf8");
 const js = readFileSync(path.join(res, "editor.bundle.js"), "utf8");
 
 // Frame the host page with the bundle inlined, plus globals Milkdown expects.
 const dom = new JSDOM(html, {
-  url: "file:///muisti/editor.html",
+  url: "file:///mieli/editor.html",
   runScripts: "dangerously",
   beforeParse(window) {
     window.console = console;
@@ -39,7 +39,7 @@ const script = window.document.createElement("script");
 script.textContent = js;
 window.document.body.appendChild(script);
 
-// Wait for muistiEditor to appear (boot() is async).
+// Wait for mieliEditor to appear (boot() is async).
 function poll(fn, ms = 60, tries = 100) {
   return new Promise((resolve, reject) => {
     const step = () => {
@@ -52,9 +52,9 @@ function poll(fn, ms = 60, tries = 100) {
   });
 }
 
-await poll(() => window.muistiEditor && window.muistiEditor.isReady());
+await poll(() => window.mieliEditor && window.mieliEditor.isReady());
 
-const ed = window.muistiEditor;
+const ed = window.mieliEditor;
 ed.focus();
 const editorFocusOK = window.document.activeElement?.classList.contains("ProseMirror") === true;
 console.log(editorFocusOK ? "PASS  editor focus API" : "FAIL  editor focus API");
@@ -80,7 +80,7 @@ const cases = [
   ["1. First\n2. Second", "1. First\n2. Second"],
   ["> Quoted text", "> Quoted text"],
   ["**bold** *italic* ~~strike~~ `inline`", "**bold** *italic* ~~strike~~ `inline`"],
-  ["[Muisti](https://example.com)\n\n![Alt](image.png)", "[Muisti](https://example.com)\n\n![Alt](image.png)"],
+  ["[Mieli](https://example.com)\n\n![Alt](image.png)", "[Mieli](https://example.com)\n\n![Alt](image.png)"],
   ["```js\nconst value = 1;\n```", "```js\nconst value = 1;\n```"],
   ["Setext heading\n--------------", "## Setext heading"],
   ["    const indented = true;", "```\nconst indented = true;\n```"],
@@ -159,9 +159,9 @@ const syntaxMarkdown = [
   "hard break  ",
   "next line",
   "",
-  "<span data-muisti-html=\"inline\">inline HTML</span>",
+  "<span data-mieli-html=\"inline\">inline HTML</span>",
   "",
-  "<div data-muisti-html=\"block\">block HTML</div>",
+  "<div data-mieli-html=\"block\">block HTML</div>",
   "",
   "![Alt](image.png)",
   "",
@@ -200,8 +200,8 @@ const extendedSyntaxChecks = {
   referenceLink: Boolean(syntaxRoot?.querySelector('a[href="https://example.com"]')),
   autolink: Boolean(syntaxRoot?.querySelector('a[href="https://example.org"]')),
   hardBreak: Boolean(syntaxRoot?.querySelector("br")),
-  inlineHTML: firstSyntaxRoundTrip.includes('<span data-muisti-html="inline">inline HTML</span>'),
-  blockHTML: firstSyntaxRoundTrip.includes('<div data-muisti-html="block">block HTML</div>'),
+  inlineHTML: firstSyntaxRoundTrip.includes('<span data-mieli-html="inline">inline HTML</span>'),
+  blockHTML: firstSyntaxRoundTrip.includes('<div data-mieli-html="block">block HTML</div>'),
 };
 const extendedSyntaxDOMOK = Object.values(extendedSyntaxChecks).every(Boolean);
 const mermaidIsPreservedCode = Boolean(syntaxRoot?.querySelector('pre[data-language="mermaid"]'))
@@ -252,7 +252,7 @@ const codeBlockLabelRule = /\.ProseMirror\s+pre::before\s*\{([^}]*)\}/s
   .exec(html)?.[1] ?? "";
 const sharedBlockLabelRule = /\.ProseMirror\s*>\s*h1::before,[\s\S]*?\.ProseMirror\s*>\s*hr::before\s*\{([^}]*)\}/s
   .exec(html)?.[1] ?? "";
-const codeBlockLabelStyleOK = /content:\s*var\(--muisti-label-code\)/.test(codeBlockLabelRule)
+const codeBlockLabelStyleOK = /content:\s*var\(--mieli-label-code\)/.test(codeBlockLabelRule)
   && /writing-mode:\s*vertical-rl/.test(sharedBlockLabelRule)
   && /right:\s*calc\(100%\s*\+/.test(sharedBlockLabelRule);
 console.log(codeBlockLabelStyleOK
@@ -267,12 +267,12 @@ const verticalBlockLabels = [
   ["h4", "[\\\"']H4[\\\"']"],
   ["h5", "[\\\"']H5[\\\"']"],
   ["h6", "[\\\"']H6[\\\"']"],
-  ["blockquote", "var\\(--muisti-label-quote\\)"],
-  ["ul", "var\\(--muisti-label-unordered-list\\)"],
-  ["ol", "var\\(--muisti-label-ordered-list\\)"],
-  ["ul:has(> li[data-task-item])", "var\\(--muisti-label-task-list\\)"],
-  ['[data-table-wrapper="true"]', "var\\(--muisti-label-table\\)"],
-  ["hr", "var\\(--muisti-label-divider\\)"],
+  ["blockquote", "var\\(--mieli-label-quote\\)"],
+  ["ul", "var\\(--mieli-label-unordered-list\\)"],
+  ["ol", "var\\(--mieli-label-ordered-list\\)"],
+  ["ul:has(> li[data-task-item])", "var\\(--mieli-label-task-list\\)"],
+  ['[data-table-wrapper="true"]', "var\\(--mieli-label-table\\)"],
+  ["hr", "var\\(--mieli-label-divider\\)"],
 ];
 const missingBlockLabels = verticalBlockLabels.filter(([selector, content]) => {
   const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -302,9 +302,9 @@ console.log(headingLabelCombinationOK
   : "FAIL  combined upright heading labels");
 if (!headingLabelCombinationOK) process.exitCode = 1;
 
-const editorLanguageVariablesOK = /:root\s*\{[^}]*--muisti-label-code:\s*["']Code["'][^}]*--muisti-hint-code-exit:\s*["']⌘ Return to exit["']/s.test(html)
-  && /:root:lang\(zh-Hans\)[^{]*\{[^}]*--muisti-label-code:\s*["']代码["'][^}]*--muisti-hint-code-exit:\s*["']⌘ Return 跳出["']/s.test(html);
-const codeBlockExitHintOK = /\.ProseMirror\s+pre::after\s*\{[^}]*content:\s*var\(--muisti-hint-code-exit\)/s.test(html)
+const editorLanguageVariablesOK = /:root\s*\{[^}]*--mieli-label-code:\s*["']Code["'][^}]*--mieli-hint-code-exit:\s*["']⌘ Return to exit["']/s.test(html)
+  && /:root:lang\(zh-Hans\)[^{]*\{[^}]*--mieli-label-code:\s*["']代码["'][^}]*--mieli-hint-code-exit:\s*["']⌘ Return 跳出["']/s.test(html);
+const codeBlockExitHintOK = /\.ProseMirror\s+pre::after\s*\{[^}]*content:\s*var\(--mieli-hint-code-exit\)/s.test(html)
   && editorLanguageVariablesOK;
 console.log(codeBlockExitHintOK
   ? "PASS  code block Command-Return exit hint"

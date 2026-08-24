@@ -1,5 +1,5 @@
 /**
- * Muisti Markdown editor frontend — T061.
+ * Mieli Markdown editor frontend — T061.
  *
  * Boots a Milkdown (ProseMirror) WYSIWYG editor inside the WKWebView host
  * page and exposes a minimal global API that the native side (EditorBridge)
@@ -584,7 +584,7 @@ async function boot() {
 
   // Minimal public API for the native side. Markdown is the single source of
   // truth: getMarkdown() returns what would be persisted, setMarkdown() loads it.
-  window.muistiEditor = {
+  window.mieliEditor = {
     /** Updates editor-owned labels without touching Markdown content. */
     setLanguage(language) {
       document.documentElement.lang = String(language).toLowerCase().startsWith("zh")
@@ -687,5 +687,5 @@ async function boot() {
 }
 
 boot().catch((err) => {
-  console.error("[muisti-editor] boot failed", err);
+  console.error("[mieli-editor] boot failed", err);
 });

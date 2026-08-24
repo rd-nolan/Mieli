@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "build": "esbuild src/index.js --bundle --outfile=dist/editor.bundle.js --format=iife --minify && cp dist/editor.bundle.js ../Muisti/Resources/ && cp dist/editor.bundle.css ../Muisti/Resources/",
+    "build": "esbuild src/index.js --bundle --outfile=dist/editor.bundle.js --format=iife --minify && cp dist/editor.bundle.js ../Mieli/Resources/ && cp dist/editor.bundle.css ../Mieli/Resources/",
     "verify": "node verify/editor.verify.mjs && node verify/code-block-enter.verify.mjs && node verify/fm.verify.mjs"
   },
   "keywords": [],

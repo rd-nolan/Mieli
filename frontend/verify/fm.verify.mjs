@@ -3,18 +3,18 @@ import { readFileSync } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const res = path.resolve(__dirname, "../../Muisti/Resources");
+const res = path.resolve(__dirname, "../../Mieli/Resources");
 const html = readFileSync(path.join(res, "editor.html"), "utf8");
 const js = readFileSync(path.join(res, "editor.bundle.js"), "utf8");
-const dom = new JSDOM(html, { url: "file:///muisti/editor.html", runScripts: "dangerously", beforeParse(w){ w.console=console; } });
+const dom = new JSDOM(html, { url: "file:///mieli/editor.html", runScripts: "dangerously", beforeParse(w){ w.console=console; } });
 const { window } = dom;
 window.webkit = { messageHandlers: { editorContent: { postMessage(){} } } };
 const script = window.document.createElement("script");
 script.textContent = js;
 window.document.body.appendChild(script);
 function poll(fn, ms=60, tries=200){ return new Promise((res,rej)=>{ const step=()=>{ const v=fn(); if(v) return res(v); if(--tries<=0) return rej(new Error("timeout")); setTimeout(step,ms); }; step(); }); }
-await poll(()=>window.muistiEditor?.isReady());
-const ed = window.muistiEditor;
+await poll(()=>window.mieliEditor?.isReady());
+const ed = window.mieliEditor;
 let fail = 0;
 const chk = (cond, msg) => { console.log((cond?"PASS ":"FAIL ")+msg); if(!cond) fail++; };
 

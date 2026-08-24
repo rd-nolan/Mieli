@@ -1,6 +1,6 @@
-Muisti — Development Guide
+Mieli — Development Guide
 
-你正在开发一个名为 Muisti 的 macOS 原生 Markdown 笔记应用。
+你正在开发一个名为 Mieli 的 macOS 原生 Markdown 笔记应用。
 
 本文件是项目的长期开发规范、架构约束和任务 Roadmap。
 
@@ -10,7 +10,7 @@ Muisti — Development Guide
 
 1. Product Goal
 
-Muisti 是一个：
+Mieli 是一个：
 
 简洁、快速、Local-first 的 macOS Markdown 笔记软件。
 
@@ -24,7 +24,7 @@ Muisti 是一个：
 * 附件
 * 全文搜索
 
-Muisti 不应该发展成：
+Mieli 不应该发展成：
 
 * Notion Clone
 * Obsidian Clone
@@ -39,7 +39,7 @@ Muisti 不应该发展成：
 
 2. Core Principle
 
-Muisti 最重要的数据原则：
+Mieli 最重要的数据原则：
 
 Markdown + Attachments = User Data
 SQLite = Rebuildable Local Index
@@ -54,7 +54,7 @@ SQLite 只是：
 
 删除：
 
-.muisti/index.sqlite
+.mieli/index.sqlite
 
 之后必须能够仅根据 Workspace 中的 Markdown 文件重新建立索引。
 
@@ -147,7 +147,7 @@ You Aren’t Gonna Need It.
 
 5. Data Safety Priority
 
-Muisti 管理的是用户笔记。
+Mieli 管理的是用户笔记。
 
 数据安全优先级最高。
 
@@ -175,7 +175,7 @@ Never silently lose user data.
 
 6. Workspace
 
-用户第一次启动 Muisti 时选择一个本地目录作为 Workspace。
+用户第一次启动 Mieli 时选择一个本地目录作为 Workspace。
 
 例如：
 
@@ -199,14 +199,14 @@ Notes/
 │   ├── Swift.md
 │   └── SQLite.md
 │
-└── .muisti/
+└── .mieli/
     └── index.sqlite
 
-.muisti 是 Muisti 内部目录。
+.mieli 是 Mieli 内部目录。
 
 扫描 Workspace 时必须忽略：
 
-.muisti
+.mieli
 
 ⸻
 
@@ -262,7 +262,7 @@ Security-Scoped Bookmark
 
 9. Markdown Metadata
 
-Muisti 创建的 Markdown 使用 YAML Front Matter。
+Mieli 创建的 Markdown 使用 YAML Front Matter。
 
 例如：
 
@@ -362,7 +362,7 @@ hello
 
 12. Folder Model
 
-Muisti 不维护虚拟目录。
+Mieli 不维护虚拟目录。
 
 Sidebar 中的文件夹：
 
@@ -435,7 +435,7 @@ note.md
 
 15. Markdown Editor
 
-Muisti 需要：
+Mieli 需要：
 
 WYSIWYG Markdown Editor
 
@@ -645,7 +645,7 @@ image-3.png
 
 SQLite 位于：
 
-<workspace>/.muisti/index.sqlite
+<workspace>/.mieli/index.sqlite
 
 SQLite 只是：
 
@@ -740,7 +740,7 @@ content
 
 26. Chinese Search
 
-Muisti 必须重点支持：
+Mieli 必须重点支持：
 
 * Chinese
 * English
@@ -812,7 +812,7 @@ matched snippet
 
 注意：
 
-Muisti 中：
+Mieli 中：
 
 Markdown → SQLite
 
@@ -847,7 +847,7 @@ SyncEngine
 
 这是项目最高优先级 Scope 约束之一。
 
-Muisti V1：
+Mieli V1：
 
 没有任何多设备同步。
 
@@ -897,7 +897,7 @@ SyncMetadata
 
 修改 Markdown。
 
-Muisti 后期需要监听 Workspace。
+Mieli 后期需要监听 Workspace。
 
 如果用户自己把 Workspace 放进：
 
@@ -907,9 +907,9 @@ Muisti 后期需要监听 Workspace。
 
 这是用户自己的行为。
 
-Muisti 不集成这些服务。
+Mieli 不集成这些服务。
 
-Muisti 只看到：
+Mieli 只看到：
 
 Local Filesystem Changes
 
@@ -999,7 +999,7 @@ index
 
 推荐大致：
 
-Muisti/
+Mieli/
 ├── App/
 ├── Workspace/
 ├── FileSystem/
@@ -1390,7 +1390,7 @@ DONE
 
 实现：
 
-* 创建 Muisti macOS SwiftUI App
+* 创建 Mieli macOS SwiftUI App
 * Bundle/Application 基础配置
 * App 能启动
 * 创建最基本 ContentView
@@ -1493,7 +1493,7 @@ App 启动时恢复 Bookmark。
 
 ⸻
 
-T013 — Initialize Muisti Directory
+T013 — Initialize Mieli Directory
 
 Status:
 
@@ -1501,7 +1501,7 @@ DONE
 
 创建：
 
-.muisti/
+.mieli/
 
 如果已经存在则复用。
 
@@ -1530,7 +1530,7 @@ directory
 
 忽略：
 
-.muisti
+.mieli
 *.files
 
 暂时不要索引内容。
@@ -1656,7 +1656,7 @@ M3 — Markdown Domain
 
 目标：
 
-建立 Muisti Markdown 最小数据规范。
+建立 Mieli Markdown 最小数据规范。
 
 T030 — Front Matter Parser
 
@@ -1679,7 +1679,7 @@ Status:
 
 DONE
 
-新建 Muisti Note 时生成 ULID。
+新建 Mieli Note 时生成 ULID。
 
 确保 rename/move 不改变 ID。
 
@@ -1762,7 +1762,7 @@ DONE
 
 创建：
 
-.muisti/index.sqlite
+.mieli/index.sqlite
 
 ⸻
 
@@ -2453,7 +2453,7 @@ id = fm?.id ?? NoteID.generate()
 
 对：
 
-Muisti 自己创建的笔记（T032：写入稳定 id）
+Mieli 自己创建的笔记（T032：写入稳定 id）
 
 无影响。
 
@@ -2506,7 +2506,7 @@ options: [.withSecurityScope, .securityScopeAllowOnlyReadAccess]
 
 只读权限。
 
-Muisti 需要写入用户笔记（保存/重命名/删除/附件）。
+Mieli 需要写入用户笔记（保存/重命名/删除/附件）。
 
 当前开发构建无沙盒（Info.plist 无 Entitlements，isSandboxed == false），只读 bookmark 不生效，所以现在不报错。
 
@@ -3034,7 +3034,7 @@ M8
 
 核心任务完成后：
 
-Muisti 已经达到第一版 MVP 的核心目标。
+Mieli 已经达到第一版 MVP 的核心目标。
 
 M9：
 
@@ -3269,7 +3269,7 @@ Waiting for next task.
 
 58. Final Instruction
 
-Muisti 的目标不是功能最多。
+Mieli 的目标不是功能最多。
 
 目标是：
 
