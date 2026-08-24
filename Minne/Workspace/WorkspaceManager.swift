@@ -776,7 +776,7 @@ guard target.hasPrefix(rootResolved + "/") else { return nil }
     /// Returns `true` if the user picked a directory, `false` if cancelled.
     @MainActor
     @discardableResult
-    func selectWorkspace() -> Bool {
+    func selectWorkspace(prompt: String = String(localized: "Select Workspace")) -> Bool {
         // T111: switching workspaces first tears down the old watcher so a
         // stale observer never reports changes from the previous workspace.
         stopWatching()
@@ -786,7 +786,7 @@ guard target.hasPrefix(rootResolved + "/") else { return nil }
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
         panel.canCreateDirectories = true
-        panel.prompt = "Select Workspace"
+        panel.prompt = prompt
 
         guard panel.runModal() == .OK, let url = panel.url else {
             return false

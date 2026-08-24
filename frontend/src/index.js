@@ -585,6 +585,18 @@ async function boot() {
   // Minimal public API for the native side. Markdown is the single source of
   // truth: getMarkdown() returns what would be persisted, setMarkdown() loads it.
   window.minneEditor = {
+    /** Updates editor-owned labels without touching Markdown content. */
+    setLanguage(language) {
+      document.documentElement.lang = String(language).toLowerCase().startsWith("zh")
+        ? "zh-Hans"
+        : "en";
+    },
+
+    /** Moves keyboard focus back into the ProseMirror editor. */
+    focus() {
+      view.focus();
+    },
+
     /** Current content serialized to Markdown ('' when empty). */
     getMarkdown() {
       const body = editor.action((ctx) => {

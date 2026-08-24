@@ -14,6 +14,8 @@ import WebKit
 ///   user edits the document. Persistence (autosave) is wired in T064.
 struct MarkdownEditorView: NSViewRepresentable {
     let markdown: String
+    var focusRequest = 0
+    var languageIdentifier = "en"
     var onContentChanged: ((String) -> Void)? = nil
 /// A local file dropped into the editor (T083). The closure builds the
     /// Markdown to insert (copy + relative link via AttachmentService) and
@@ -65,9 +67,13 @@ struct MarkdownEditorView: NSViewRepresentable {
         private var pendingMarkdown = ""
         private var injectedMarkdown: String? // last md actually pushed to JS
         private var injectedImageBase: String?  // last base URI pushed to JS
+        private var injectedLanguage: String?
+        private var appliedFocusRequest = 0
         private var didFinish = false
         private weak var hostView: WKWebView?
         private var injectTask: Task<Void, Never>?
+        private var focusTask: Task<Void, Never>?
+        private var languageTask: Task<Void, Never>?
 
         init(parent: MarkdownEditorView) {
             self.parent = parent
@@ -81,12 +87,16 @@ struct MarkdownEditorView: NSViewRepresentable {
             hostView = webView
             guard didFinish else { return }
             injectIfNeeded()
+            injectLanguageIfNeeded()
+            focusIfNeeded()
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             hostView = webView
             didFinish = true
             injectIfNeeded()
+            injectLanguageIfNeeded()
+            focusIfNeeded()
         }
 
         // MARK: - WKScriptMessageHandler
@@ -156,6 +166,44 @@ struct MarkdownEditorView: NSViewRepresentable {
             let js = "window.minneEditor.setImageBaseURI(\(encoded)); true;"
             webView.evaluateJavaScript(js)
             injectedImageBase = baseURL.absoluteString
+        }
+
+        private func injectLanguageIfNeeded() {
+            guard didFinish,
+                  parent.languageIdentifier != injectedLanguage,
+                  let hostView else { return }
+            let language = parent.languageIdentifier
+            languageTask?.cancel()
+            languageTask = Task { [weak self, weak hostView] in
+                while !Task.isCancelled {
+                    if let ready = await self?.isEditorReady(in: hostView), ready { break }
+                    try? await Task.sleep(for: .milliseconds(40))
+                }
+                guard !Task.isCancelled, let hostView,
+                      let data = try? JSONEncoder().encode(language),
+                      let encoded = String(data: data, encoding: .utf8) else { return }
+                _ = try? await hostView.evaluateJavaScript(
+                    "window.minneEditor.setLanguage(\(encoded)); true;"
+                )
+                self?.injectedLanguage = language
+            }
+        }
+
+        private func focusIfNeeded() {
+            guard didFinish,
+                  parent.focusRequest != appliedFocusRequest,
+                  let hostView else { return }
+            let request = parent.focusRequest
+            focusTask?.cancel()
+            focusTask = Task { [weak self, weak hostView] in
+                while !Task.isCancelled {
+                    if let ready = await self?.isEditorReady(in: hostView), ready { break }
+                    try? await Task.sleep(for: .milliseconds(40))
+                }
+                guard !Task.isCancelled, let hostView else { return }
+                _ = try? await hostView.evaluateJavaScript("window.minneEditor.focus(); true;")
+                self?.appliedFocusRequest = request
+            }
         }
 
         private func isEditorReady(in webView: WKWebView?) async -> Bool {

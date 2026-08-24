@@ -1,4 +1,6 @@
 import XCTest
+import Testing
+import Foundation
 @testable import Minne
 
 /// Verifies T034: reading tags from a note's Front Matter.
@@ -167,5 +169,133 @@ final class NoteTagsTests: XCTestCase {
         let md = "---\ntags:\n  - 状态机\n  - 并发并发\n---\n"
         let out = NoteTags.removeTag("状态机", from: md)
         XCTAssertEqual(NoteTags.tags(in: out), ["并发并发"])
+    }
+}
+
+@Suite("T126 tag name resolution")
+struct TagNameResolutionTests {
+    @Test("blank input cancels")
+    func blankInput() {
+        #expect(NoteTags.resolveTag("  \n", currentTags: [], workspaceTags: []) == nil)
+    }
+
+    @Test("new input is trimmed")
+    func trimsNewTag() {
+        #expect(NoteTags.resolveTag("  Swift 并发  ", currentTags: [], workspaceTags: []) == "Swift 并发")
+    }
+
+    @Test("current note match wins ignoring case")
+    func currentNoteWins() {
+        #expect(NoteTags.resolveTag(
+            "swift",
+            currentTags: ["SWIFT"],
+            workspaceTags: ["swift", "Swift"]
+        ) == "SWIFT")
+    }
+
+    @Test("exact workspace spelling wins among historical variants")
+    func exactWorkspaceMatchWins() {
+        #expect(NoteTags.resolveTag(
+            "swift",
+            currentTags: [],
+            workspaceTags: ["Swift", "swift"]
+        ) == "swift")
+    }
+
+    @Test("case-insensitive workspace matches have deterministic spelling")
+    func workspaceFallbackIsStable() {
+        #expect(NoteTags.resolveTag(
+            "sWiFt",
+            currentTags: [],
+            workspaceTags: ["swift", "Swift"]
+        ) == "Swift")
+    }
+}
+
+@Suite("T128 runtime language")
+struct AppLanguageTests {
+    private func defaults() -> (UserDefaults, String) {
+        let suite = "MinneTests.AppLanguage.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        return (defaults, suite)
+    }
+
+    @Test("system language resolves Chinese and English")
+    func systemResolution() {
+        let (defaults, suite) = defaults()
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let chinese = AppLanguage(
+            defaults: defaults,
+            preferenceKey: "language",
+            preferredLanguages: ["zh-Hans-CN"]
+        )
+        #expect(chinese.resolvedIdentifier == "zh-Hans")
+
+        let english = AppLanguage(
+            defaults: defaults,
+            preferenceKey: "other-language",
+            preferredLanguages: ["fr-FR"]
+        )
+        #expect(english.resolvedIdentifier == "en")
+    }
+
+    @Test("explicit selection persists")
+    func persistence() {
+        let (defaults, suite) = defaults()
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let first = AppLanguage(
+            defaults: defaults,
+            preferenceKey: "language",
+            preferredLanguages: ["en-US"]
+        )
+        first.selection = .simplifiedChinese
+
+        let restored = AppLanguage(
+            defaults: defaults,
+            preferenceKey: "language",
+            preferredLanguages: ["en-US"]
+        )
+        #expect(restored.selection == .simplifiedChinese)
+        #expect(restored.resolvedIdentifier == "zh-Hans")
+    }
+
+    @Test("language menu has three mutually exclusive choices")
+    func menuState() {
+        let (defaults, suite) = defaults()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let language = AppLanguage(
+            defaults: defaults,
+            preferenceKey: "language",
+            preferredLanguages: ["en-US"]
+        )
+
+        #expect(AppLanguage.Selection.allCases.count == 3)
+        for selection in AppLanguage.Selection.allCases {
+            language.selection = selection
+            #expect(AppLanguage.Selection.allCases.filter(language.isSelected).count == 1)
+            #expect(language.isSelected(selection))
+        }
+    }
+
+    @Test("critical catalog values exist in both languages")
+    func localizedValues() {
+        let (defaults, suite) = defaults()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let language = AppLanguage(
+            defaults: defaults,
+            preferenceKey: "language",
+            preferredLanguages: ["en-US"]
+        )
+
+        language.selection = .english
+        #expect(language.text("New Note") == "New Note")
+        #expect(language.text("Operation Failed") == "Operation Failed")
+
+        language.selection = .simplifiedChinese
+        #expect(language.text("New Note") == "新建笔记")
+        #expect(language.text("Operation Failed") == "操作失败")
     }
 }

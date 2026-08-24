@@ -1,4 +1,6 @@
 import XCTest
+import Testing
+import AppKit
 @testable import Minne
 
 /// Verifies T022: creating real folders on disk, with path-safety guards.
@@ -87,5 +89,21 @@ final class WorkspaceCreateFolderTests: XCTestCase {
     func testRejectsDotSegments() {
         XCTAssertFalse(manager.createFolder(at: "a/./b"))
         XCTAssertFalse(manager.createFolder(at: "a/../b"))
+    }
+}
+
+@Suite("T127 sidebar scroller styling")
+struct SidebarScrollerStyleTests {
+    @Test("uses a small auto-hiding overlay scroller")
+    @MainActor
+    func smallOverlayScroller() {
+        let scrollView = NSScrollView()
+        scrollView.hasVerticalScroller = true
+
+        SidebarScrollerConfigurator.configure(scrollView)
+
+        #expect(scrollView.scrollerStyle == .overlay)
+        #expect(scrollView.autohidesScrollers)
+        #expect(scrollView.verticalScroller?.controlSize == .small)
     }
 }

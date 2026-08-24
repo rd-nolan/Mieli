@@ -55,6 +55,24 @@ function poll(fn, ms = 60, tries = 100) {
 await poll(() => window.minneEditor && window.minneEditor.isReady());
 
 const ed = window.minneEditor;
+ed.focus();
+const editorFocusOK = window.document.activeElement?.classList.contains("ProseMirror") === true;
+console.log(editorFocusOK ? "PASS  editor focus API" : "FAIL  editor focus API");
+if (!editorFocusOK) process.exitCode = 1;
+
+ed.setMarkdown("# Language\n\nKeep **Markdown** unchanged.");
+const beforeLanguageChange = ed.getMarkdown();
+ed.setLanguage("en");
+const englishLanguageOK = window.document.documentElement.lang === "en";
+ed.setLanguage("zh-Hans");
+const chineseLanguageOK = window.document.documentElement.lang === "zh-Hans";
+const languagePreservesMarkdown = ed.getMarkdown() === beforeLanguageChange;
+const languageAPIExists = englishLanguageOK && chineseLanguageOK && languagePreservesMarkdown;
+console.log(languageAPIExists
+  ? "PASS  runtime editor language API"
+  : `FAIL  runtime editor language API en=${englishLanguageOK} zh=${chineseLanguageOK} markdown=${languagePreservesMarkdown}`);
+if (!languageAPIExists) process.exitCode = 1;
+
 const cases = [
   ["# Hello\n\n**World**", "# Hello\n\n**World**"],
   ["今天研究了 Spring 状态机的实现方案", "今天研究了 Spring 状态机的实现方案"],
@@ -234,7 +252,7 @@ const codeBlockLabelRule = /\.ProseMirror\s+pre::before\s*\{([^}]*)\}/s
   .exec(html)?.[1] ?? "";
 const sharedBlockLabelRule = /\.ProseMirror\s*>\s*h1::before,[\s\S]*?\.ProseMirror\s*>\s*hr::before\s*\{([^}]*)\}/s
   .exec(html)?.[1] ?? "";
-const codeBlockLabelStyleOK = /content:\s*["']代码块["']/.test(codeBlockLabelRule)
+const codeBlockLabelStyleOK = /content:\s*var\(--minne-label-code\)/.test(codeBlockLabelRule)
   && /writing-mode:\s*vertical-rl/.test(sharedBlockLabelRule)
   && /right:\s*calc\(100%\s*\+/.test(sharedBlockLabelRule);
 console.log(codeBlockLabelStyleOK
@@ -243,37 +261,50 @@ console.log(codeBlockLabelStyleOK
 if (!codeBlockLabelStyleOK) process.exitCode = 1;
 
 const verticalBlockLabels = [
-  ["h1", "H1"],
-  ["h2", "H2"],
-  ["h3", "H3"],
-  ["h4", "H4"],
-  ["h5", "H5"],
-  ["h6", "H6"],
-  ["blockquote", "引用"],
-  ["ul", "无序列表"],
-  ["ol", "有序列表"],
-  ["ul:has(> li[data-task-item])", "任务列表"],
-  ['[data-table-wrapper="true"]', "表格"],
-  ["hr", "分隔线"],
+  ["h1", "[\\\"']H1[\\\"']"],
+  ["h2", "[\\\"']H2[\\\"']"],
+  ["h3", "[\\\"']H3[\\\"']"],
+  ["h4", "[\\\"']H4[\\\"']"],
+  ["h5", "[\\\"']H5[\\\"']"],
+  ["h6", "[\\\"']H6[\\\"']"],
+  ["blockquote", "var\\(--minne-label-quote\\)"],
+  ["ul", "var\\(--minne-label-unordered-list\\)"],
+  ["ol", "var\\(--minne-label-ordered-list\\)"],
+  ["ul:has(> li[data-task-item])", "var\\(--minne-label-task-list\\)"],
+  ['[data-table-wrapper="true"]', "var\\(--minne-label-table\\)"],
+  ["hr", "var\\(--minne-label-divider\\)"],
 ];
 const missingBlockLabels = verticalBlockLabels.filter(([selector, content]) => {
   const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const rules = [...html.matchAll(
     new RegExp(`\\.ProseMirror\\s*>\\s*${escapedSelector}::before\\s*\\{([^}]*)\\}`, "gs"),
   )].map((match) => match[1]);
-  return !rules.some((rule) => new RegExp(`content:\\s*["']${content}["']`).test(rule));
+  return !rules.some((rule) => new RegExp(`content:\\s*${content}`).test(rule));
 });
 const mermaidLabelOK = /\.ProseMirror\s+pre\[data-language=["']mermaid["']\]::before\s*\{[^}]*content:\s*["']Mermaid["']/s
   .test(html);
 const verticalLabelLayoutOK = /writing-mode:\s*vertical-rl/.test(sharedBlockLabelRule)
   && /right:\s*calc\(100%\s*\+/.test(sharedBlockLabelRule);
+const headingLabelRules = [...html.matchAll(
+  /\.ProseMirror\s*>\s*h1::before,[\s\S]*?\.ProseMirror\s*>\s*h6::before\s*\{([^}]*)\}/gs,
+)].map((match) => match[1]);
+const headingLabelCombinationOK = headingLabelRules.some((rule) =>
+  /text-combine-upright:\s*all/.test(rule)
+    && /writing-mode:\s*horizontal-tb/.test(rule)
+    && /letter-spacing:\s*0/.test(rule));
 console.log(missingBlockLabels.length === 0 && verticalLabelLayoutOK && mermaidLabelOK
   ? "PASS  vertical labels for all block types"
   : `FAIL  vertical block labels missing=${missingBlockLabels.map(([s]) => s).join(",")} layout=${verticalLabelLayoutOK} mermaid=${mermaidLabelOK}`);
 if (missingBlockLabels.length || !verticalLabelLayoutOK || !mermaidLabelOK) process.exitCode = 1;
+console.log(headingLabelCombinationOK
+  ? "PASS  combined upright heading labels"
+  : "FAIL  combined upright heading labels");
+if (!headingLabelCombinationOK) process.exitCode = 1;
 
-const codeBlockExitHintOK = /\.ProseMirror\s+pre::after\s*\{[^}]*content:\s*["']⌘ Return 跳出["']/s
-  .test(html);
+const editorLanguageVariablesOK = /:root\s*\{[^}]*--minne-label-code:\s*["']Code Block["'][^}]*--minne-hint-code-exit:\s*["']⌘ Return to exit["']/s.test(html)
+  && /:root:lang\(zh-Hans\)[^{]*\{[^}]*--minne-label-code:\s*["']代码块["'][^}]*--minne-hint-code-exit:\s*["']⌘ Return 跳出["']/s.test(html);
+const codeBlockExitHintOK = /\.ProseMirror\s+pre::after\s*\{[^}]*content:\s*var\(--minne-hint-code-exit\)/s.test(html)
+  && editorLanguageVariablesOK;
 console.log(codeBlockExitHintOK
   ? "PASS  code block Command-Return exit hint"
   : "FAIL  code block Command-Return exit hint");

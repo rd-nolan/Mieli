@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh">
+<html lang="zh-Hans">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -14,6 +14,27 @@
   -->
   <link rel="stylesheet" href="editor.bundle.css">
   <style>
+    :root {
+      --minne-label-quote: "Quote";
+      --minne-label-unordered-list: "Unordered List";
+      --minne-label-ordered-list: "Ordered List";
+      --minne-label-task-list: "Task List";
+      --minne-label-table: "Table";
+      --minne-label-divider: "Divider";
+      --minne-label-code: "Code Block";
+      --minne-hint-code-exit: "⌘ Return to exit";
+    }
+    :root:lang(zh-Hans),
+    :root:lang(zh) {
+      --minne-label-quote: "引用";
+      --minne-label-unordered-list: "无序列表";
+      --minne-label-ordered-list: "有序列表";
+      --minne-label-task-list: "任务列表";
+      --minne-label-table: "表格";
+      --minne-label-divider: "分隔线";
+      --minne-label-code: "代码块";
+      --minne-hint-code-exit: "⌘ Return 跳出";
+    }
     body {
       margin: 0;
       padding: 4px 24px 24px;
@@ -136,12 +157,22 @@
     .ProseMirror > h4::before { content: "H4"; }
     .ProseMirror > h5::before { content: "H5"; }
     .ProseMirror > h6::before { content: "H6"; }
-    .ProseMirror > blockquote::before { content: "引用"; }
-    .ProseMirror > ul::before { content: "无序列表"; }
-    .ProseMirror > ol::before { content: "有序列表"; }
-    .ProseMirror > ul:has(> li[data-task-item])::before { content: "任务列表"; }
-    .ProseMirror > [data-table-wrapper="true"]::before { content: "表格"; }
-    .ProseMirror > hr::before { content: "分隔线"; }
+    .ProseMirror > h1::before,
+    .ProseMirror > h2::before,
+    .ProseMirror > h3::before,
+    .ProseMirror > h4::before,
+    .ProseMirror > h5::before,
+    .ProseMirror > h6::before {
+      text-combine-upright: all;
+      writing-mode: horizontal-tb;
+      letter-spacing: 0;
+    }
+    .ProseMirror > blockquote::before { content: var(--minne-label-quote); }
+    .ProseMirror > ul::before { content: var(--minne-label-unordered-list); }
+    .ProseMirror > ol::before { content: var(--minne-label-ordered-list); }
+    .ProseMirror > ul:has(> li[data-task-item])::before { content: var(--minne-label-task-list); }
+    .ProseMirror > [data-table-wrapper="true"]::before { content: var(--minne-label-table); }
+    .ProseMirror > hr::before { content: var(--minne-label-divider); }
 
     /* Don't let the first heading's margin-top collapse into the editor's top
        edge, which adds phantom whitespace above the content. */
@@ -190,14 +221,14 @@
       tab-size: 4;
     }
     .ProseMirror pre::before {
-      content: "代码块";
+      content: var(--minne-label-code);
     }
     .ProseMirror pre[data-language="mermaid"]::before {
       content: "Mermaid";
       text-orientation: mixed;
     }
     .ProseMirror pre::after {
-      content: "⌘ Return 跳出";
+      content: var(--minne-hint-code-exit);
       position: absolute;
       top: 0.65em;
       right: 0.9em;

@@ -59,6 +59,7 @@
 		0A1000000000000000000115 /* editor.html in Resources */ = {isa = PBXBuildFile; fileRef = 0A1000000000000000000114 /* editor.html */; };
 		0A1000000000000000000118 /* editor.bundle.js in Resources */ = {isa = PBXBuildFile; fileRef = 0A1000000000000000000117 /* editor.bundle.js */; };
 		0A100000000000000000011A /* editor.bundle.css in Resources */ = {isa = PBXBuildFile; fileRef = 0A1000000000000000000119 /* editor.bundle.css */; };
+		0A1000000000000000000142 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 0A1000000000000000000143 /* Localizable.xcstrings */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -114,6 +115,7 @@
 		0A1000000000000000000114 /* editor.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = editor.html; sourceTree = "<group>"; };
 		0A1000000000000000000117 /* editor.bundle.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "editor.bundle.js"; sourceTree = "<group>"; };
 		0A1000000000000000000119 /* editor.bundle.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = "editor.bundle.css"; sourceTree = "<group>"; };
+		0A1000000000000000000143 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		0A1000000000000000000021 /* MinneTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MinneTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		0A1000000000000000000020 /* Minne.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Minne.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -185,6 +187,7 @@
 				0A1000000000000000000114 /* editor.html */,
 				0A1000000000000000000117 /* editor.bundle.js */,
 				0A1000000000000000000119 /* editor.bundle.css */,
+				0A1000000000000000000143 /* Localizable.xcstrings */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -407,6 +410,7 @@
 				0A1000000000000000000115 /* editor.html in Resources */,
 				0A1000000000000000000118 /* editor.bundle.js in Resources */,
 				0A100000000000000000011A /* editor.bundle.css in Resources */,
+				0A1000000000000000000142 /* Localizable.xcstrings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

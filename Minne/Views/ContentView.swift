@@ -36,6 +36,37 @@ final class WorkspaceSwitchRequest {
     var fire = false
 }
 
+/// Applies the compact native scrollbar style to the enclosing SwiftUI List.
+/// The probe keeps List semantics intact and only configures its NSScrollView.
+struct SidebarScrollerConfigurator: NSViewRepresentable {
+    func makeNSView(context: Context) -> ProbeView { ProbeView() }
+    func updateNSView(_ nsView: ProbeView, context: Context) { nsView.configureAncestor() }
+
+    static func configure(_ scrollView: NSScrollView) {
+        scrollView.scrollerStyle = .overlay
+        scrollView.autohidesScrollers = true
+        scrollView.verticalScroller?.controlSize = .small
+    }
+
+    final class ProbeView: NSView {
+        override func viewDidMoveToSuperview() {
+            super.viewDidMoveToSuperview()
+            configureAncestor()
+        }
+
+        func configureAncestor() {
+            var ancestor = superview
+            while let view = ancestor {
+                if let scrollView = view as? NSScrollView {
+                    SidebarScrollerConfigurator.configure(scrollView)
+                    return
+                }
+                ancestor = view.superview
+            }
+        }
+    }
+}
+
 /// Root view for the Minne macOS app.
 ///
 /// M2 (T021): shows the real Workspace directory tree in a sidebar.
@@ -45,8 +76,10 @@ struct ContentView: View {
     @Environment(SearchFocus.self) private var searchFocus
     @Environment(SaveRequest.self) private var saveRequest
     @Environment(WorkspaceSwitchRequest.self) private var workspaceSwitch
+    @Environment(AppLanguage.self) private var appLanguage
     @FocusState private var searchFocused: Bool
     @FocusState private var renameFocused: Bool
+    @FocusState private var tagInputFocused: Bool
     private let logger = Logger(subsystem: "Minne", category: "Editor")
     @State private var selectedItem: WorkspaceItem?
     @State private var renamingItem: WorkspaceItem?
@@ -71,6 +104,8 @@ struct ContentView: View {
     @State private var showingAddTag = false
     @State private var addTagText = ""
     @State private var addTagPath = ""
+    @State private var preserveTagInputAfterError = false
+    @State private var editorFocusRequest = 0
     /// Bumped after a successful tag add to force the tags row to re-read.
     @State private var tagAddRevision = 0
     /// Tags shown in the sidebar (T073), refreshed when they change.
@@ -109,30 +144,20 @@ struct ContentView: View {
                         Button {
                             beginNewCategory(in: nil)
                         } label: {
-                            Label("新建分类", systemImage: "folder.badge.plus")
+                            Label(appLanguage.text("New Category"), systemImage: "folder.badge.plus")
                         }
-                        .help("新建分类")
+                        .help(appLanguage.text("New Category"))
                         .disabled(workspace.workspaceURL == nil)
 
                         Button {
                             beginNewNote(in: nil)
                         } label: {
-                            Label("新建笔记", systemImage: "square.and.pencil")
+                            Label(appLanguage.text("New Note"), systemImage: "square.and.pencil")
                         }
-                        .help("新建笔记")
+                        .help(appLanguage.text("New Note"))
                         .keyboardShortcut("n", modifiers: .command)
                         .disabled(workspace.workspaceURL == nil)
 
-                        // T111: switch to a different local workspace at any
-                        // time — not just on first launch — via the system
-                        // folder picker.
-                        Button {
-                            changeWorkspace()
-                        } label: {
-                            Label("Change Workspace…", systemImage: "folder")
-                        }
-                        .help("Choose a different workspace directory")
-                        .disabled(workspace.workspaceURL == nil)
                     }
                 }
         } detail: {
@@ -140,7 +165,7 @@ struct ContentView: View {
                 // T074: clicking a sidebar tag lists every note carrying it.
                 let notes = taggedNotes
                 if notes.isEmpty {
-                    Text("没有带标签「\(tag)」的笔记")
+                    Text(appLanguage.format("No notes tagged “%@”", tag))
                         .foregroundStyle(.secondary)
                 } else {
                     List(notes) { note in
@@ -173,7 +198,11 @@ struct ContentView: View {
                 detailPlaceholder
             }
         }
-        .searchable(text: $searchText, placement: .toolbar, prompt: "Search notes")
+        .searchable(
+            text: $searchText,
+            placement: .toolbar,
+            prompt: Text(appLanguage.text("Search notes"))
+        )
             .searchFocused($searchFocused)
         // T101: the ⌘F menu command requests focus by raising `shouldFocus`;
         // consume it here (and switch to the search field) rather than letting
@@ -206,6 +235,9 @@ struct ContentView: View {
         // Switching away from a note must persist any unsaved edit rather than
         // drop it (AGENTS §5 — never silently lose user data).
         .onChange(of: selectedItem) { oldValue, _ in
+            if oldValue?.relativePath != selectedItem?.relativePath {
+                cancelInlineTagInput()
+            }
             guard oldValue?.kind == .note, pendingMarkdown != nil else { return }
             autosaveTask?.cancel()
             autosaveTask = nil
@@ -221,14 +253,22 @@ struct ContentView: View {
             guard let change = workspace.lastExternalChange else { return }
             handleExternalNoteChange(change.path, isDelete: change.isDelete)
         }
+        .onChange(of: errorMessage) { _, newValue in
+            guard newValue == nil, preserveTagInputAfterError, showingAddTag else { return }
+            preserveTagInputAfterError = false
+            Task { @MainActor in
+                await Task.yield()
+                tagInputFocused = true
+            }
+        }
         .frame(minWidth: 640, minHeight: 400)
         .overlay { if workspace.workspaceURL == nil { emptyState } }
     }
 
     var body: some View {
         baseView
-        .alert("删除笔记", isPresented: deleteAlertBinding) {
-            Button("删除", role: .destructive) {
+        .alert(appLanguage.text("Delete Note"), isPresented: deleteAlertBinding) {
+            Button(appLanguage.text("Delete"), role: .destructive) {
                 if let item = deletingItem,
                    workspace.deleteNoteFile(at: item.relativePath) {
                     deletingItem = nil
@@ -236,17 +276,20 @@ struct ContentView: View {
                         selectedItem = nil
                     }
                 } else {
-                    showError("删除笔记失败。")
+                    showError(appLanguage.text("Could not delete the note."))
                 }
             }
-            Button("取消", role: .cancel) {
+            Button(appLanguage.text("Cancel"), role: .cancel) {
                 deletingItem = nil
             }
         } message: {
-            Text("确定要永久删除「\(deletingItem?.name ?? "")」吗？此操作不可撤销。")
+            Text(appLanguage.format(
+                "Permanently delete “%@”? This action cannot be undone.",
+                deletingItem?.name ?? ""
+            ))
         }
         .alert(folderDeleteAlertTitle, isPresented: folderDeleteAlertBinding) {
-            Button("删除", role: .destructive) {
+            Button(appLanguage.text("Delete"), role: .destructive) {
                 if let item = folderDeleteItem,
                    workspace.deleteFolder(at: item.relativePath) {
                     folderDeleteItem = nil
@@ -254,40 +297,19 @@ struct ContentView: View {
                         selectedItem = nil
                     }
                 } else {
-                    showError("删除文件夹失败。")
+                    showError(appLanguage.text("Could not delete the folder."))
                 }
             }
-            Button("取消", role: .cancel) {
+            Button(appLanguage.text("Cancel"), role: .cancel) {
                 folderDeleteItem = nil
             }
         } message: {
             Text(folderDeleteMessage)
         }
-        .alert("添加标签", isPresented: $showingAddTag) {
-            TextField("新标签", text: $addTagText)
-            Button("添加") {
-                guard prepareForNoteMutation(at: addTagPath) else { return }
-                if workspace.addTag(addTagText, toNoteAt: addTagPath) {
-                    let addedTag = addTagText.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !addedTag.isEmpty, !sidebarTags.contains(addedTag) {
-                        sidebarTags.append(addedTag)
-                        sidebarTags.sort { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
-                    }
-                    tagAddRevision += 1
-                    reloadNote()
-                } else {
-                    showError("添加标签失败：无法写入笔记。")
-                }
-                addTagText = ""
-            }
-            Button("取消", role: .cancel) { addTagText = "" }
-        } message: {
-            Text("该标签会写入当前笔记的 Front Matter。留空或重复则不改变。")
-        }
         // T095: the open note was changed by another program while this edit is
         // unsaved. Offer an explicit choice — never silently overwrite either side.
-        .alert("外部修改笔记", isPresented: $showingConflict) {
-            Button("保存我的修改") {
+        .alert(appLanguage.text("Note Changed Externally"), isPresented: $showingConflict) {
+            Button(appLanguage.text("Save My Changes")) {
                 // Write the local edit over the external change (explicit choice).
                 if let path = pendingPath {
                     writePendingMarkdown()
@@ -295,22 +317,25 @@ struct ContentView: View {
                 reloadNote()
                 showingConflict = false
             }
-            Button("采用外部改动") {
+            Button(appLanguage.text("Use External Changes")) {
                 // Drop the local edit and reload the external version.
                 reloadNote()
                 showingConflict = false
             }
-            Button("取消", role: .cancel) {
+            Button(appLanguage.text("Cancel"), role: .cancel) {
                 showingConflict = false
             }
         } message: {
-            Text("「\(conflictNotePath)」已在另一个程序中修改，而当前编辑尚未保存。请选择处理方式。")
+            Text(appLanguage.format(
+                "“%@” was changed in another app while your edits are unsaved. Choose which version to keep.",
+                conflictNotePath
+            ))
         }
         // T105: a single alert covers important operations that fail (save,
         // create/rename/move/delete, workspace selection). Minimal and
         // deliberate — no notification system, one error at a time.
-        .alert("操作失败", isPresented: errorAlertBinding) {
-            Button("好") {}
+        .alert(appLanguage.text("Operation Failed"), isPresented: errorAlertBinding) {
+            Button(appLanguage.text("OK")) {}
         } message: {
             Text(errorMessage ?? "")
         }
@@ -329,28 +354,28 @@ struct ContentView: View {
                         : nil
                 )
 .contextMenu {
-                    Button("重命名") {
+                    Button(appLanguage.text("Rename")) {
                         startRenaming(item)
                     }
                     if item.kind == .folder {
                         // T103: create inside the right-clicked folder.
                         Divider()
-                        Button("新建笔记") {
+                        Button(appLanguage.text("New Note")) {
                             beginNewNote(in: item.relativePath)
                         }
-                        Button("新建分类") {
+                        Button(appLanguage.text("New Category")) {
                             beginNewCategory(in: item.relativePath)
                         }
                     }
                     if item.kind == .note {
-                        Button("Move to…") {
+                        Button(appLanguage.text("Move to…")) {
                             moveToFolder(item)
                         }
                         Divider()
                         Button(role: .destructive) {
                             deletingItem = item
                         } label: {
-                            Label("Delete…", systemImage: "trash")
+                            Label(appLanguage.text("Delete…"), systemImage: "trash")
                         }
                     } else if item.kind == .folder {
                         Divider()
@@ -358,7 +383,7 @@ struct ContentView: View {
                             folderDeleteItem = item
                             folderDeleteCount = workspace.folderItemCount(for: item.relativePath) ?? 0
                         } label: {
-                            Label("Delete…", systemImage: "trash")
+                            Label(appLanguage.text("Delete…"), systemImage: "trash")
                         }
                     }
                 }
@@ -367,23 +392,24 @@ struct ContentView: View {
             // creation actions at the workspace root (an empty area has no
             // targeted folder). Row-level context menus handle rename/delete.
             .contextMenu {
-                Button("新建笔记") {
+                Button(appLanguage.text("New Note")) {
                     beginNewNote(in: nil)
                 }
-                Button("新建分类") {
+                Button(appLanguage.text("New Category")) {
                     beginNewCategory(in: nil)
                 }
             }
+            .background(SidebarScrollerConfigurator())
 
             // T073: all tags in use, listed under the workspace tree. Selecting
             // a tag is the trigger for filtering notes (T074).
             Divider()
             if sidebarTags.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("标签")
+                    Text(appLanguage.text("Tags"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Text("暂无标签")
+                    Text(appLanguage.text("No Tags"))
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 }
@@ -396,6 +422,7 @@ struct ContentView: View {
                         .lineLimit(1)
                 }
                 .listStyle(.sidebar)
+                .background(SidebarScrollerConfigurator())
             }
         }
         .onAppear { sidebarTags = workspace.allTags() }
@@ -410,7 +437,7 @@ struct ContentView: View {
         Group {
             if renamingItem?.relativePath == item.relativePath {
                 Label {
-                    TextField("名称", text: $renameText)
+                    TextField(appLanguage.text("Name"), text: $renameText)
                         .textFieldStyle(.plain)
                         .focused($renameFocused)
                         .onSubmit { commitRename(item) }
@@ -468,7 +495,7 @@ struct ContentView: View {
         guard renamingItem?.relativePath == item.relativePath else { return }
         let trimmed = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            showError("重命名失败：名称不能为空。")
+            showError(appLanguage.text("Rename failed: the name cannot be empty."))
             focusRenameField()
             return
         }
@@ -494,7 +521,7 @@ struct ContentView: View {
         if succeeded {
             cancelRename()
         } else {
-            showError("重命名失败：名称无效或同名项目已存在。")
+            showError(appLanguage.text("Rename failed: the name is invalid or already in use."))
             focusRenameField()
         }
     }
@@ -514,15 +541,22 @@ struct ContentView: View {
     }
 
     private var folderDeleteAlertTitle: String {
-        folderDeleteCount > 0 ? "删除非空文件夹" : "删除文件夹"
+        appLanguage.text(folderDeleteCount > 0 ? "Delete Non-Empty Folder" : "Delete Folder")
     }
 
     private var folderDeleteMessage: String {
         let name = folderDeleteItem?.name ?? ""
         if folderDeleteCount > 0 {
-            return "「\(name)」包含 \(folderDeleteCount) 个项目。删除将永久移除该文件夹及其全部内容，此操作不可撤销。"
+            return appLanguage.format(
+                "“%@” contains %lld items. Deleting it permanently removes the folder and all its contents. This action cannot be undone.",
+                name,
+                Int64(folderDeleteCount)
+            )
         }
-        return "确定要永久删除空文件夹「\(name)」吗？此操作不可撤销。"
+        return appLanguage.format(
+            "Permanently delete the empty folder “%@”? This action cannot be undone.",
+            name
+        )
     }
 
 /// Picks a destination folder in the workspace and moves `item` (a note)
@@ -536,13 +570,13 @@ struct ContentView: View {
         panel.allowsMultipleSelection = false
         panel.canCreateDirectories = true
         panel.directoryURL = root
-        panel.prompt = "Move Here"
+        panel.prompt = appLanguage.text("Move Here")
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
         guard let relative = workspace.relativeWorkspacePath(of: url) else { return }
         if !workspace.moveNote(at: item.relativePath, toDirectory: relative) {
             // T105: only user-initiated errors. Cancellation returns earlier.
-            showError("移动笔记失败：目标文件夹无效或已有同名笔记。")
+            showError(appLanguage.text("Could not move the note: the destination is invalid or contains a note with the same name."))
         }
     }
 
@@ -550,7 +584,7 @@ struct ContentView: View {
     /// sidebar so typing replaces it without an intermediate dialog.
     private func beginNewCategory(in folder: String?) {
         guard let path = workspace.createDefaultFolder(in: folder) else {
-            showError("创建分类失败。")
+            showError(appLanguage.text("Could not create the category."))
             return
         }
         let name = (path as NSString).lastPathComponent
@@ -566,7 +600,7 @@ struct ContentView: View {
     /// Creates and opens a Markdown note immediately, then starts inline rename.
     private func beginNewNote(in folder: String?) {
         guard let path = workspace.createDefaultNote(in: folder) else {
-            showError("创建笔记失败。")
+            showError(appLanguage.text("Could not create the note."))
             return
         }
         openNewNote(createdFrom: path)
@@ -601,7 +635,7 @@ struct ContentView: View {
                 }
             }
             renameTask = nil
-            showError("项目已创建，但侧栏刷新失败。")
+            showError(appLanguage.text("The item was created, but the sidebar could not refresh."))
         }
     }
 
@@ -659,13 +693,13 @@ struct ContentView: View {
         selectedItem = nil
         selectedTag = nil
         searchText = ""
-        if !workspace.selectWorkspace() {
-            showError("无法建立该工作区。请确认目录可访问且可写。")
+        if !workspace.selectWorkspace(prompt: appLanguage.text("Select Workspace")) {
+            showError(appLanguage.text("Could not open the workspace. Make sure the folder is accessible and writable."))
         }
     }
 
     private var detailPlaceholder: some View {
-        Text("Select a note to edit it.")
+        Text(appLanguage.text("Select a note to edit it."))
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -679,7 +713,7 @@ struct ContentView: View {
                 .foregroundStyle(.secondary)
             Text("\(name)")
                 .font(.headline)
-            Text("这是一个文件夹。选择其中的笔记或在文件夹内新建笔记。")
+            Text(appLanguage.text("This is a folder. Select a note inside it or create a new note here."))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
@@ -692,15 +726,15 @@ struct ContentView: View {
             Image(systemName: "folder")
                 .font(.system(size: 40))
                 .foregroundStyle(.secondary)
-            Text("No Workspace selected")
+            Text(appLanguage.text("No Workspace Selected"))
                 .font(.headline)
-            Text("Select a local directory to store your notes.")
+            Text(appLanguage.text("Select a local folder to store your notes."))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-            Button("Select Workspace…") {
+            Button(appLanguage.text("Select Workspace…")) {
                 // T105: surfacing selection failures (bookmark/.minne setup).
-                if !workspace.selectWorkspace() {
-                    showError("无法建立该工作区。请确认目录可访问且可写。")
+                if !workspace.selectWorkspace(prompt: appLanguage.text("Select Workspace")) {
+                    showError(appLanguage.text("Could not open the workspace. Make sure the folder is accessible and writable."))
                 }
             }
             .keyboardShortcut("o", modifiers: .command)
@@ -740,7 +774,10 @@ struct ContentView: View {
     private func writePendingMarkdown() -> Bool {
         guard let md = pendingMarkdown, let path = pendingPath else { return true }
         guard let root = workspace.workspaceURL else {
-            showError("保存「\(path)」失败：工作区当前不可用。\n内容仍保留在编辑器中，请重试。")
+            showError(appLanguage.format(
+                "Could not save “%@”: the workspace is unavailable.\nYour content is still in the editor. Please try again.",
+                path
+            ))
             return false
         }
         let url = root.appendingPathComponent(path)
@@ -753,7 +790,11 @@ struct ContentView: View {
         } catch {
             logger.error("Save failed for \(path, privacy: .public): \(error.localizedDescription, privacy: .public)")
             // T105: a failed save risks data loss (AGENTS §5) — surface it.
-            showError("保存「\(path)」失败：\(error.localizedDescription)\n内容仍保留在编辑器中，请重试。")
+            showError(appLanguage.format(
+                "Could not save “%@”: %@\nYour content is still in the editor. Please try again.",
+                path,
+                error.localizedDescription
+            ))
             return false
         }
         // T066: keep the search index in sync with the saved content.
@@ -816,15 +857,15 @@ struct ContentView: View {
                             tagAddRevision += 1
                             reloadNote()
                         } else {
-                            showError("移除标签失败：无法写入笔记。")
+                            showError(appLanguage.text("Could not remove the tag because the note could not be written."))
                         }
                     } label: {
                         Image(systemName: "xmark")
                             .font(.system(size: 8, weight: .semibold))
                     }
                     .buttonStyle(.borderless)
-                    .help("移除标签")
-                    .accessibilityLabel("移除标签 \(tag)")
+                    .help(appLanguage.text("Remove Tag"))
+                    .accessibilityLabel(appLanguage.format("Remove tag %@", tag))
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
@@ -832,26 +873,94 @@ struct ContentView: View {
             }
 
             if tags.isEmpty {
-                Text("无标签")
+                Text(appLanguage.text("No Tags"))
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
 
+            if showingAddTag, addTagPath == notePath {
+                TextField(appLanguage.text("New Tag"), text: $addTagText)
+                    .textFieldStyle(.plain)
+                    .font(.caption)
+                    .focused($tagInputFocused)
+                    .onSubmit { commitInlineTagInput(currentTags: tags, notePath: notePath) }
+                    .onExitCommand { cancelInlineTagInput() }
+                    .onChange(of: tagInputFocused) { wasFocused, isFocused in
+                        guard wasFocused, !isFocused, !preserveTagInputAfterError else { return }
+                        cancelInlineTagInput()
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .frame(minWidth: 72, idealWidth: 96, maxWidth: 180)
+                    .background(.quaternary, in: Capsule())
+            }
+
             Button {
-                addTagPath = notePath
-                addTagText = ""
-                showingAddTag = true
+                beginInlineTagInput(notePath: notePath)
             } label: {
                 Image(systemName: "plus")
                     .font(.caption)
             }
             .buttonStyle(.borderless)
-            .help("添加标签")
-            .accessibilityLabel("添加标签")
+            .help(appLanguage.text("Add Tag"))
+            .accessibilityLabel(appLanguage.text("Add Tag"))
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func beginInlineTagInput(notePath: String) {
+        if showingAddTag, addTagPath == notePath {
+            tagInputFocused = true
+            return
+        }
+        addTagPath = notePath
+        addTagText = ""
+        showingAddTag = true
+        preserveTagInputAfterError = false
+        Task { @MainActor in
+            await Task.yield()
+            tagInputFocused = true
+        }
+    }
+
+    private func commitInlineTagInput(currentTags: [String], notePath: String) {
+        guard let resolvedTag = NoteTags.resolveTag(
+            addTagText,
+            currentTags: currentTags,
+            workspaceTags: sidebarTags
+        ) else {
+            cancelInlineTagInput()
+            return
+        }
+
+        preserveTagInputAfterError = true
+        guard prepareForNoteMutation(at: notePath) else { return }
+        guard workspace.addTag(resolvedTag, toNoteAt: notePath) else {
+            showError(appLanguage.text("Could not add the tag because the note could not be written."))
+            return
+        }
+
+        preserveTagInputAfterError = false
+        if !sidebarTags.contains(where: {
+            $0.compare(resolvedTag, options: [.caseInsensitive]) == .orderedSame
+        }) {
+            sidebarTags.append(resolvedTag)
+            sidebarTags.sort { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+        }
+        tagAddRevision += 1
+        reloadNote()
+        cancelInlineTagInput()
+        editorFocusRequest += 1
+    }
+
+    private func cancelInlineTagInput() {
+        tagInputFocused = false
+        showingAddTag = false
+        addTagText = ""
+        addTagPath = ""
+        preserveTagInputAfterError = false
     }
 
     ///
@@ -968,13 +1077,13 @@ struct ContentView: View {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 32))
                         .foregroundStyle(.secondary)
-                    Text("没有找到匹配的笔记")
+                    Text(appLanguage.text("No matching notes found"))
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .navigationTitle("Search")
+        .navigationTitle(appLanguage.text("Search"))
     }
 
     /// Opens a search result by selecting the matching note in the sidebar.
@@ -1026,6 +1135,8 @@ struct ContentView: View {
             Divider()
             MarkdownEditorView(
                 markdown: md,
+                focusRequest: editorFocusRequest,
+                languageIdentifier: appLanguage.resolvedIdentifier,
                 onContentChanged: { edited in
                     saveEditorContent(edited)
                 },
@@ -1048,11 +1159,12 @@ struct ContentView: View {
             ? workspace.addImageAttachment(from: drop.path, forNoteAt: notePath)
             : workspace.addAttachmentLink(from: drop.path, forNoteAt: notePath)
         if let valid = fragment { insert(valid) }
-        else { showError("附件复制失败：无法读取该文件或写入附件目录。") }
+        else { showError(appLanguage.text("Could not copy the attachment because the file could not be read or the attachment folder could not be written.")) }
     }
 }
 
 #Preview {
     ContentView()
         .environment(WorkspaceManager())
+        .environment(AppLanguage())
 }

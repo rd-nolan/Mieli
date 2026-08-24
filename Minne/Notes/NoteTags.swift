@@ -7,6 +7,32 @@ import Foundation
 /// malformed yield an empty list, never a failure.
 enum NoteTags {
 
+    /// Resolves inline tag input to one canonical spelling (T126).
+    /// Current-note spelling wins so a case-only duplicate remains a no-op;
+    /// otherwise reuse an exact Workspace spelling, then a deterministic
+    /// case-insensitive match before treating the trimmed input as new.
+    static func resolveTag(
+        _ input: String,
+        currentTags: [String],
+        workspaceTags: [String]
+    ) -> String? {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        if let current = currentTags.first(where: {
+            $0.compare(trimmed, options: [.caseInsensitive]) == .orderedSame
+        }) {
+            return current
+        }
+        if let exact = workspaceTags.first(where: { $0 == trimmed }) {
+            return exact
+        }
+        let matches = workspaceTags.filter {
+            $0.compare(trimmed, options: [.caseInsensitive]) == .orderedSame
+        }
+        return matches.sorted().first ?? trimmed
+    }
+
     /// Returns the tags declared in a note's Front Matter, or `[]` when there
     /// is no Front Matter (or no `tags` key).
     static func tags(in markdown: String) -> [String] {

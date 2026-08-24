@@ -2953,6 +2953,77 @@ Definition of Done：
 
 ⸻
 
+M13 — Interaction and Localization Polish
+
+目标：
+
+优化标签输入、侧栏滚动体验，并建立可即时切换的中英双语界面。
+
+T126 — Inline Tag Input and Heading Labels
+
+Status:
+
+DONE
+
+要求：
+
+* 点击标签行“+”后直接显示胶囊输入框，不使用添加标签弹窗
+* Enter 保存；空内容、Esc、主动失焦或切换笔记取消
+* 忽略大小写复用当前笔记或 Workspace 已有标签，不迁移历史重复标签
+* 保存成功后焦点回到编辑器，保存失败保留输入文字
+* H1–H6 左侧标识在竖排布局中完整显示为横向组合文字
+
+Definition of Done：
+
+* 单元测试覆盖标签规范化、优先级与幂等行为
+* 前端验证覆盖编辑器 focus API 和 H1–H6 组合样式
+* 前端 Build、相关 Swift 测试和 macOS App Build 通过
+
+⸻
+
+T127 — Sidebar Scrollbar and Workspace Entry
+
+Status:
+
+DONE
+
+要求：
+
+* Workspace 树和标签列表使用细型、自动隐藏的原生 overlay 滚动条
+* 保留原生 List 的选择、键盘导航和右键菜单
+* 移除侧栏工具栏中重复的 Workspace 切换按钮
+* 保留菜单栏切换入口与 ⇧⌘O
+
+Definition of Done：
+
+* 两个侧栏列表应用相同滚动条配置
+* 常规窗口宽度不再出现仅含 Workspace 切换项的溢出入口
+* Swift 测试和 macOS App Build 通过
+
+⸻
+
+T128 — Runtime Chinese and English Localization
+
+Status:
+
+DONE
+
+要求：
+
+* 支持跟随系统、简体中文和 English，并持久化用户选择
+* 菜单栏提供语言切换，当前窗口和编辑器即时更新，无需重启
+* 本地化全部应用自有按钮、菜单、提示、错误、空状态、右键菜单和无障碍文字
+* 编辑器块标签及退出提示随语言切换
+* 不改变笔记、文件名、标签大小写或 Markdown 数据
+
+Definition of Done：
+
+* 单元测试覆盖语言解析、持久化和中英文关键值
+* 前端验证覆盖块标签即时切换及 Markdown round-trip
+* 前端 Build、完整 XCTest、macOS App Build 和 GUI E2E 通过
+
+⸻
+
 52. MVP Completion Boundary
 
 当：
