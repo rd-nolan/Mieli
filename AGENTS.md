@@ -2715,6 +2715,244 @@ Definition of Done：
 
 ⸻
 
+T116 — Fix Code Block Newline Input
+
+Status:
+
+DONE
+
+Reason：
+
+用户在编辑器中输入三个反引号创建代码块后，Return 无法可靠地换行输入。
+
+要求：
+
+* 代码块内按 Return 时显式插入换行并保持光标位于代码块内
+* 三个反引号后的首次 Return 继续创建代码块
+* 不改变标题、列表、引用和普通段落的 Enter 行为
+* 保持 Markdown 为唯一主数据，不增加第三方依赖
+
+Definition of Done：
+
+* 补充覆盖代码块创建与连续 Return 换行的前端验证
+* 多行代码 Markdown 能正确序列化并重新加载
+* 前端 Build、验证脚本与 macOS App Build 通过
+* 使用测试笔记完成代码块多行输入 E2E 回归
+
+⸻
+
+T117 — Render Code Blocks Clearly
+
+Status:
+
+DONE
+
+Reason：
+
+真实 E2E 验证确认 fenced code block 已正确生成并保存，但编辑器中的视觉样式过弱，用户无法明确识别代码块边界。
+
+要求：
+
+* 三个反引号加 Return 后立即显示清晰但克制的代码块样式
+* 使用背景、圆角、内边距、等宽字体和合理行高区分代码块
+* 不使用失去焦点作为 Markdown 结构转换触发点
+* 不改变 Markdown、保存、自动保存或索引逻辑
+
+Definition of Done：
+
+* 前端验证覆盖代码块 DOM 与计算样式
+* 前端 Build、验证脚本与 macOS App Build 通过
+* 使用测试笔记完成代码块即时渲染 GUI E2E 回归
+
+⸻
+
+T118 — Direct Create and Inline Rename
+
+Status:
+
+DONE
+
+Reason：
+
+新建文件夹和新建笔记当前需要先填写弹窗，文案冗长，也打断侧栏操作流程。
+
+要求：
+
+* 用户界面的“新建文件夹”改为“新建分类”
+* 新建分类时直接创建真实文件夹，不显示创建弹窗
+* 新建笔记时直接创建 Markdown 文件，不显示创建弹窗
+* 使用不覆盖已有项目的默认名称，并在创建后立即进入侧栏行内重命名
+* 移除“在 Workspace 中创建一个新的真实文件夹”和“在 Workspace 中创建一个新的 Markdown 笔记”文案
+* 不改变文件系统、Markdown metadata、自动保存或索引规则
+
+Definition of Done：
+
+* 默认名称和同名递增规则有测试覆盖
+* 新建分类与新建笔记均不显示创建弹窗，并立即进入行内重命名
+* macOS App Build 与相关测试通过
+* 使用真实 Workspace 完成新建分类和新建笔记 E2E 回归
+
+⸻
+
+T119 — Exit and Label Code Blocks
+
+Status:
+
+DONE
+
+Reason：
+
+代码块可以连续换行输入，但当前没有可靠的键盘退出操作，视觉上也缺少明确的块类型标识。
+
+要求：
+
+* 代码块内普通 Return 继续插入换行
+* 代码块内按 ⌘ Return 时，在代码块后创建普通段落并将光标移入该段落
+* 代码块左侧使用 CSS 伪元素显示“代码块”标识
+* 伪元素内容不得写入 Markdown
+* 不增加工具栏、语法高亮、依赖或其他代码块退出交互
+
+Definition of Done：
+
+* 前端验证覆盖普通 Return 与 ⌘ Return 的不同结果
+* 前端验证覆盖代码块伪元素标识
+* 前端 Build、完整验证与 macOS App Build 通过
+* 使用测试笔记完成 ⌘ Return 跳出代码块 GUI E2E 回归
+
+⸻
+
+T120 — Improve Code Block Guidance
+
+Status:
+
+DONE
+
+Reason：
+
+代码块已经支持 ⌘ Return 跳出，但界面没有显示快捷键提示；“代码块”标签位于容器内部，占用代码内容空间。
+
+要求：
+
+* 在代码块内显示“⌘ Return 跳出”提示
+* “代码块”标签移动到代码块左侧外部并竖排显示
+* 标签与提示继续使用 CSS 伪元素，不得进入 Markdown
+* 不改变代码块输入、退出或序列化逻辑
+
+Definition of Done：
+
+* 前端验证覆盖左侧外部竖排标签和快捷键提示
+* 前端 Build、完整验证与 macOS App Build 通过
+* 使用测试笔记完成视觉与 ⌘ Return GUI E2E 回归
+
+⸻
+
+T121 — Exit Blockquotes
+
+Status:
+
+DONE
+
+Reason：
+
+引用块内可以继续输入，但没有可靠方式回到引用块后的普通段落。
+
+要求：
+
+* 引用块内普通 Return 保持现有行为
+* 引用块内按 ⌘ Return 时，在整个引用块后创建普通段落并将光标移入
+* 保留引用内容和 Markdown 结构
+* 不增加工具栏、依赖或其他引用块交互
+
+Definition of Done：
+
+* 前端验证覆盖引用块 ⌘ Return 退出、内容保留和光标位置
+* 前端 Build、完整验证与 macOS App Build 通过
+* 使用测试笔记完成引用输入与退出 GUI E2E 回归
+
+⸻
+
+T122 — Markdown Syntax E2E and Block Labels
+
+Status:
+
+DONE
+
+Reason：
+
+现有 Markdown/GFM 语法缺少完整的输入、跳出、保存和重载 E2E 覆盖；除代码块外，多数块级结构也缺少明确的类型标识和统一退出方式。
+
+要求：
+
+* 覆盖当前编辑器支持的 CommonMark/GFM 块级与行内语法
+* 标题、引用、代码、无序列表、有序列表、任务列表、表格和分隔线在左侧显示竖排类型标识
+* 标识只使用 CSS 伪元素，不得写入 Markdown
+* 标题、引用、代码、列表、任务列表和表格支持 ⌘ Return 跳到整个块后的普通段落
+* 普通 Return 和既有 Markdown 输入、保存、重载行为保持不变
+* Mermaid 代码围栏和 LaTeX 文本只验证内容保留，不在本任务增加渲染器
+
+Definition of Done：
+
+* 前端验证覆盖全部当前支持语法的 DOM、Markdown round-trip、竖排标识和块级退出
+* 前端 Build、完整验证与 macOS App Build/测试通过
+* 使用综合测试笔记完成 GUI E2E，验证跳出、保存和重新打开
+
+⸻
+
+T123 — Mermaid Diagram Rendering
+
+Status:
+
+TODO
+
+要求：
+
+* 为 `mermaid` fenced code block 增加图表渲染器
+* 保持 Mermaid 源文本为 Markdown 唯一数据源
+* 定义编辑、错误展示、保存重载和安全边界
+* 不在 T122 中实现
+
+⸻
+
+T124 — LaTeX Math Rendering
+
+Status:
+
+TODO
+
+要求：
+
+* 为行内 `$...$` 与块级 `$$...$$` 增加公式渲染器
+* 保持 LaTeX 源文本为 Markdown 唯一数据源
+* 定义编辑、错误展示、保存重载和退出交互
+* 不在 T122 中实现
+
+⸻
+
+T125 — Markdown E2E Review Fixes
+
+Status:
+
+DONE
+
+Reason：
+
+T122 完成审查发现标题中部无法使用 ⌘ Return 跳出、表格 DOM 往返解析会产生额外空表格，以及新建项目的延迟重命名任务可能跨 Workspace 命中错误文件；完整语法验证也缺少若干当前支持的 CommonMark 场景。
+
+要求：
+
+* 标题内任意光标位置按 ⌘ Return 均跳到标题后的普通段落
+* 表格 DOM 往返解析保持单一表格，不产生额外节点
+* 新建后的延迟重命名绑定创建时的 Workspace，切换 Workspace 后必须取消
+* 补充当前解析器所支持的 CommonMark/GFM 保存和重载验证
+* 不实现 Mermaid 或 LaTeX 渲染器
+
+Definition of Done：
+
+* 回归测试先复现上述三个缺陷，再验证修复
+* 前端 Build、完整验证、Swift 测试与 macOS App Build 通过
+
+⸻
+
 52. MVP Completion Boundary
 
 当：
@@ -2782,7 +3020,7 @@ Required for:
 
 当前唯一允许执行：
 
-T115 — Fix Tag Updates and Rename Refresh — DONE
+T122 — Markdown Syntax E2E and Block Labels — DONE
 
 等待用户指定下一个 Current Task。
 
@@ -2996,6 +3234,6 @@ Minne 的目标不是功能最多。
 
 只执行：
 
-T115 — Fix Tag Updates and Rename Refresh
+T122 — Markdown Syntax E2E and Block Labels
 
-完成、编译、验证、更新 T115 状态，然后 STOP。
+T122 已完成。T123 与 T124 保持 TODO，等待用户指定下一个 Current Task，然后 STOP。

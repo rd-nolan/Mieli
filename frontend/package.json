@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "build": "esbuild src/index.js --bundle --outfile=dist/editor.bundle.js --format=iife --minify && cp dist/editor.bundle.js ../Minne/Resources/ && cp dist/editor.bundle.css ../Minne/Resources/",
-    "verify": "node verify/editor.verify.mjs && node verify/fm.verify.mjs"
+    "verify": "node verify/editor.verify.mjs && node verify/code-block-enter.verify.mjs && node verify/fm.verify.mjs"
   },
   "keywords": [],
   "author": "",

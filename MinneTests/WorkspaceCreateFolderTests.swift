@@ -41,6 +41,16 @@ final class WorkspaceCreateFolderTests: XCTestCase {
     }
 
     @MainActor
+    func testCreateDefaultFolderUsesCategoryNameAndAvoidsCollision() {
+        XCTAssertEqual(manager.createDefaultFolder(in: nil), "新建分类")
+        XCTAssertEqual(manager.createDefaultFolder(in: nil), "新建分类 2")
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: tempRoot.appendingPathComponent("新建分类").path))
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: tempRoot.appendingPathComponent("新建分类 2").path))
+    }
+
+    @MainActor
     func testCreateNestedFolderCreatesParents() {
         XCTAssertTrue(manager.createFolder(at: "工作/项目A/子目录"))
         XCTAssertTrue(FileManager.default.fileExists(

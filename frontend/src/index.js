@@ -13,6 +13,7 @@ import { Editor, rootCtx, defaultValueCtx, editorViewCtx, inputRulesCtx, SchemaR
 import { commonmark } from "@milkdown/preset-commonmark";
 import { serializerCtx, parserCtx, remarkStringifyOptionsCtx, prosePluginsCtx, remarkPluginsCtx } from "@milkdown/core";
 import { Plugin, TextSelection } from "@milkdown/prose/state";
+import { exitCode } from "@milkdown/prose/commands";
 import { $markSchema, $nodeSchema } from "@milkdown/utils";
 import remarkGfm from "remark-gfm";
 import { visit } from "unist-util-visit";
@@ -198,8 +199,19 @@ const tableSchema = $nodeSchema("table", () => ({
   group: "block",
   isolating: true,
   attrs: { align: { default: [] } },
-  parseDOM: [{ tag: "table" }],
-  toDOM: () => ["table", ["tbody", 0]],
+  parseDOM: [
+    { tag: 'div[data-table-wrapper="true"]', contentElement: "tbody" },
+    { tag: "table" },
+  ],
+  // The wrapper gives CSS a reliable positioning box for the external table
+  // label. Pseudo-elements on <table> itself are not consistently rendered by
+  // WebKit's table formatting context. The ProseMirror and Markdown node stays
+  // the same semantic table.
+  toDOM: () => [
+    "div",
+    { "data-table-wrapper": "true" },
+    ["table", ["tbody", 0]],
+  ],
   parseMarkdown: {
     match: (node) => node.type === "table",
     runner: (state, node, type) => {
@@ -257,7 +269,68 @@ const blockOnEnter = new Plugin({
     handleKeyDown(view, event) {
       if (event.key !== "Enter" || event.shiftKey) return false;
       const { state } = view;
-      const { $head } = state.selection;
+      const { $head, $anchor } = state.selection;
+
+      // Handle code-block Return explicitly instead of relying on Milkdown's
+      // downstream keymap. This keeps the caret inside the code block and also
+      // replaces a same-block selection with the newline.
+      if ($head.parent.type.name === "code_block" && $head.sameParent($anchor)) {
+        if (event.metaKey) {
+          return exitCode(state, view.dispatch);
+        }
+        const { from, to } = state.selection;
+        view.dispatch(state.tr.insertText("\n", from, to).scrollIntoView());
+        return true;
+      }
+
+      // Command-Return exits the entire enclosing heading, quote, list, or table.
+      // Ordinary Return is left to Milkdown so each structure keeps its native
+      // continuation behavior. Pick the outermost matching ancestor so nested
+      // content returns to a normal top-level paragraph in one action.
+      if (event.metaKey && state.selection.empty) {
+        const exitBlockNames = new Set([
+          "heading",
+          "blockquote",
+          "bullet_list",
+          "ordered_list",
+          "table",
+        ]);
+        let exitBlockDepth = null;
+        for (let depth = 1; depth <= $head.depth; depth++) {
+          if (exitBlockNames.has($head.node(depth).type.name)) {
+            exitBlockDepth = depth;
+            break;
+          }
+        }
+        if (exitBlockDepth !== null) {
+          const paragraphType = state.schema.nodes.paragraph;
+          if (!paragraphType) return false;
+          const insertAt = $head.after(exitBlockDepth);
+          let tr = state.tr.insert(insertAt, paragraphType.create());
+          tr = tr.setSelection(TextSelection.create(tr.doc, insertAt + 1));
+          view.dispatch(tr.scrollIntoView());
+          return true;
+        }
+      }
+
+      // A newly created note initially contains only its H1. In WKWebView the
+      // downstream keymap does not reliably create a following paragraph, so
+      // make the end-of-heading transition explicit before the user types a
+      // block prefix such as ```.
+      if ($head.depth === 1
+          && $head.parent.type.name === "heading"
+          && state.selection.empty
+          && $head.parentOffset === $head.parent.content.size) {
+        const paragraphType = state.schema.nodes.paragraph;
+        if (paragraphType) {
+          const insertAt = $head.after();
+          let tr = state.tr.insert(insertAt, paragraphType.create());
+          tr = tr.setSelection(TextSelection.create(tr.doc, insertAt + 1));
+          view.dispatch(tr.scrollIntoView());
+          return true;
+        }
+      }
+
       // Normalize so that top-level blocks (depth 1) and blocks inside a list
       // item (depth ≥ 2) are both handled. We only run on plain paragraphs.
       const inListItem = (() => {

@@ -59,6 +59,18 @@ const cases = [
   ["# Hello\n\n**World**", "# Hello\n\n**World**"],
   ["今天研究了 Spring 状态机的实现方案", "今天研究了 Spring 状态机的实现方案"],
   ["- 甲\n- 乙", "- 甲\n- 乙"],
+  ["1. First\n2. Second", "1. First\n2. Second"],
+  ["> Quoted text", "> Quoted text"],
+  ["**bold** *italic* ~~strike~~ `inline`", "**bold** *italic* ~~strike~~ `inline`"],
+  ["[Minne](https://example.com)\n\n![Alt](image.png)", "[Minne](https://example.com)\n\n![Alt](image.png)"],
+  ["```js\nconst value = 1;\n```", "```js\nconst value = 1;\n```"],
+  ["Setext heading\n--------------", "## Setext heading"],
+  ["    const indented = true;", "```\nconst indented = true;\n```"],
+  ["[Reference][docs]\n\n[docs]: https://example.com \"Docs\"", "[Reference](https://example.com \"Docs\")"],
+  ["<https://example.com>", "<https://example.com>"],
+  ["\\*literal\\* &amp; entity", "\\*literal\\* & entity"],
+  ["hard break  \nnext line", "hard break\\\nnext line"],
+  ["<span>inline HTML</span>", "<span>inline HTML</span>"],
   [
     "| 列一 | 列二 |\n| --- | --- |\n| 中文 | English |\n| 123 | 456 |",
     "| 列一  | 列二      |\n| --- | ------- |\n| 中文  | English |\n| 123 | 456     |",
@@ -84,13 +96,108 @@ console.log(fail ? "VERIFY FAILED" : "VERIFY OK");
 ed.setMarkdown("| A | B |\n| --- | --- |\n| 1 | 2 |\n\n- [x] Done\n- [ ] Todo");
 const editorRoot = window.document.querySelector(".ProseMirror");
 const renderedTable = editorRoot?.querySelector("table");
+const renderedTableWrapper = renderedTable?.closest('[data-table-wrapper="true"]');
 const taskBoxes = [...(editorRoot?.querySelectorAll('input[type="checkbox"]') ?? [])];
-const structureOK = Boolean(renderedTable) && taskBoxes.length === 2
+const structureOK = Boolean(renderedTable) && Boolean(renderedTableWrapper) && taskBoxes.length === 2
   && taskBoxes[0].checked && !taskBoxes[1].checked;
 console.log(structureOK
   ? "PASS  table and task-list DOM"
-  : `FAIL  table/task DOM table=${Boolean(renderedTable)} boxes=${taskBoxes.length}`);
+  : `FAIL  table/task DOM table=${Boolean(renderedTable)} wrapper=${Boolean(renderedTableWrapper)} boxes=${taskBoxes.length}`);
 if (!structureOK) process.exitCode = 1;
+
+// T122: the complete currently-supported CommonMark/GFM surface should render
+// semantically and remain stable after a save/reload round-trip. Mermaid and
+// LaTeX are intentionally preservation-only until T123/T124 add renderers.
+const syntaxMarkdown = [
+  "# H1",
+  "## H2",
+  "### H3",
+  "#### H4",
+  "##### H5",
+  "###### H6",
+  "",
+  "Setext heading",
+  "--------------",
+  "",
+  "> Quote",
+  "",
+  "- Bullet",
+  "  - Nested",
+  "",
+  "1. Ordered",
+  "2. Second",
+  "",
+  "- [x] Completed",
+  "- [ ] Pending",
+  "",
+  "**bold** *italic* ~~strike~~ `inline` [link](https://example.com)",
+  "",
+  "[Reference][docs] and <https://example.org>",
+  "",
+  "[docs]: https://example.com \"Docs\"",
+  "",
+  "\\*literal\\* &amp; entity",
+  "",
+  "hard break  ",
+  "next line",
+  "",
+  "<span data-minne-html=\"inline\">inline HTML</span>",
+  "",
+  "<div data-minne-html=\"block\">block HTML</div>",
+  "",
+  "![Alt](image.png)",
+  "",
+  "---",
+  "",
+  "```swift",
+  "let value = 1",
+  "```",
+  "",
+  "    const indented = true;",
+  "",
+  "```mermaid",
+  "graph TD; A-->B",
+  "```",
+  "",
+  "Inline $x^2$ and block:",
+  "",
+  "$$",
+  "E=mc^2",
+  "$$",
+  "",
+  "| A | B |",
+  "| --- | --- |",
+  "| 1 | 2 |",
+].join("\n");
+ed.setMarkdown(syntaxMarkdown);
+const firstSyntaxRoundTrip = ed.getMarkdown();
+const syntaxRoot = window.document.querySelector(".ProseMirror");
+const syntaxDOMOK = ["h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "ul", "ol", "del", "code", "img", "hr", "pre", "table"]
+  .every((selector) => syntaxRoot?.querySelector(selector));
+const extendedSyntaxChecks = {
+  setext: [...(syntaxRoot?.querySelectorAll("h2") ?? [])]
+    .some((node) => node.textContent === "Setext heading"),
+  indentedCode: [...(syntaxRoot?.querySelectorAll("pre") ?? [])]
+    .some((node) => node.textContent.includes("const indented = true;")),
+  referenceLink: Boolean(syntaxRoot?.querySelector('a[href="https://example.com"]')),
+  autolink: Boolean(syntaxRoot?.querySelector('a[href="https://example.org"]')),
+  hardBreak: Boolean(syntaxRoot?.querySelector("br")),
+  inlineHTML: firstSyntaxRoundTrip.includes('<span data-minne-html="inline">inline HTML</span>'),
+  blockHTML: firstSyntaxRoundTrip.includes('<div data-minne-html="block">block HTML</div>'),
+};
+const extendedSyntaxDOMOK = Object.values(extendedSyntaxChecks).every(Boolean);
+const mermaidIsPreservedCode = Boolean(syntaxRoot?.querySelector('pre[data-language="mermaid"]'))
+  && !syntaxRoot?.querySelector("svg");
+const latexIsPreservedText = firstSyntaxRoundTrip.includes("$x^2$")
+  && firstSyntaxRoundTrip.includes("$$\nE=mc^2\n$$");
+ed.setMarkdown(firstSyntaxRoundTrip);
+const syntaxRoundTripStable = ed.getMarkdown() === firstSyntaxRoundTrip;
+const completeSyntaxOK = syntaxDOMOK && extendedSyntaxDOMOK && mermaidIsPreservedCode
+  && latexIsPreservedText && syntaxRoundTripStable;
+console.log(completeSyntaxOK
+  ? "PASS  complete CommonMark/GFM DOM and round-trip"
+  : `FAIL  complete syntax DOM=${syntaxDOMOK} extended=${JSON.stringify(extendedSyntaxChecks)} mermaid=${mermaidIsPreservedCode} latex=${latexIsPreservedText} stable=${syntaxRoundTripStable}`);
+if (!completeSyntaxOK) process.exitCode = 1;
 
 const requiredStyles = [
   ".ProseMirror ul",
@@ -104,6 +211,73 @@ console.log(missingStyles.length === 0
   ? "PASS  Markdown presentation styles"
   : `FAIL  missing styles: ${missingStyles.join(", ")}`);
 if (missingStyles.length) process.exitCode = 1;
+
+// T117: a semantic code block must also have an immediately recognizable
+// visual container. Check computed behavior rather than the CSS source text.
+ed.setMarkdown("```swift\nlet value = 1\n```");
+const renderedCodeBlock = editorRoot?.querySelector("pre");
+const codeBlockStyle = renderedCodeBlock
+  ? window.getComputedStyle(renderedCodeBlock)
+  : null;
+const transparentColors = new Set(["", "transparent", "rgba(0, 0, 0, 0)"]);
+const codeBlockStyleOK = Boolean(codeBlockStyle)
+  && !transparentColors.has(codeBlockStyle.backgroundColor)
+  && Number.parseFloat(codeBlockStyle.paddingTop) > 0
+  && Number.parseFloat(codeBlockStyle.borderRadius) > 0
+  && codeBlockStyle.fontFamily.toLowerCase().includes("mono");
+console.log(codeBlockStyleOK
+  ? "PASS  code block visual container"
+  : `FAIL  code block style background=${codeBlockStyle?.backgroundColor} padding=${codeBlockStyle?.paddingTop} radius=${codeBlockStyle?.borderRadius} font=${codeBlockStyle?.fontFamily}`);
+if (!codeBlockStyleOK) process.exitCode = 1;
+
+const codeBlockLabelRule = /\.ProseMirror\s+pre::before\s*\{([^}]*)\}/s
+  .exec(html)?.[1] ?? "";
+const sharedBlockLabelRule = /\.ProseMirror\s*>\s*h1::before,[\s\S]*?\.ProseMirror\s*>\s*hr::before\s*\{([^}]*)\}/s
+  .exec(html)?.[1] ?? "";
+const codeBlockLabelStyleOK = /content:\s*["']代码块["']/.test(codeBlockLabelRule)
+  && /writing-mode:\s*vertical-rl/.test(sharedBlockLabelRule)
+  && /right:\s*calc\(100%\s*\+/.test(sharedBlockLabelRule);
+console.log(codeBlockLabelStyleOK
+  ? "PASS  outside vertical code block label"
+  : "FAIL  outside vertical code block label");
+if (!codeBlockLabelStyleOK) process.exitCode = 1;
+
+const verticalBlockLabels = [
+  ["h1", "H1"],
+  ["h2", "H2"],
+  ["h3", "H3"],
+  ["h4", "H4"],
+  ["h5", "H5"],
+  ["h6", "H6"],
+  ["blockquote", "引用"],
+  ["ul", "无序列表"],
+  ["ol", "有序列表"],
+  ["ul:has(> li[data-task-item])", "任务列表"],
+  ['[data-table-wrapper="true"]', "表格"],
+  ["hr", "分隔线"],
+];
+const missingBlockLabels = verticalBlockLabels.filter(([selector, content]) => {
+  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const rules = [...html.matchAll(
+    new RegExp(`\\.ProseMirror\\s*>\\s*${escapedSelector}::before\\s*\\{([^}]*)\\}`, "gs"),
+  )].map((match) => match[1]);
+  return !rules.some((rule) => new RegExp(`content:\\s*["']${content}["']`).test(rule));
+});
+const mermaidLabelOK = /\.ProseMirror\s+pre\[data-language=["']mermaid["']\]::before\s*\{[^}]*content:\s*["']Mermaid["']/s
+  .test(html);
+const verticalLabelLayoutOK = /writing-mode:\s*vertical-rl/.test(sharedBlockLabelRule)
+  && /right:\s*calc\(100%\s*\+/.test(sharedBlockLabelRule);
+console.log(missingBlockLabels.length === 0 && verticalLabelLayoutOK && mermaidLabelOK
+  ? "PASS  vertical labels for all block types"
+  : `FAIL  vertical block labels missing=${missingBlockLabels.map(([s]) => s).join(",")} layout=${verticalLabelLayoutOK} mermaid=${mermaidLabelOK}`);
+if (missingBlockLabels.length || !verticalLabelLayoutOK || !mermaidLabelOK) process.exitCode = 1;
+
+const codeBlockExitHintOK = /\.ProseMirror\s+pre::after\s*\{[^}]*content:\s*["']⌘ Return 跳出["']/s
+  .test(html);
+console.log(codeBlockExitHintOK
+  ? "PASS  code block Command-Return exit hint"
+  : "FAIL  code block Command-Return exit hint");
+if (!codeBlockExitHintOK) process.exitCode = 1;
 
 // T063: programmatic loads (setMarkdown) must not emit contentChanged —
 // otherwise a Swift save→reload loop would self-notify forever.

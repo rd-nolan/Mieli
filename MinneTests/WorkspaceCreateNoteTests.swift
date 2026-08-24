@@ -48,6 +48,35 @@ final class WorkspaceCreateNoteTests: XCTestCase {
     }
 
     @MainActor
+    func testCreateDefaultNoteUsesDefaultNameAndAvoidsCollision() {
+        XCTAssertEqual(manager.createDefaultNote(in: nil), "新建笔记.md")
+        XCTAssertEqual(manager.createDefaultNote(in: nil), "新建笔记 2.md")
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: tempRoot.appendingPathComponent("新建笔记.md").path))
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: tempRoot.appendingPathComponent("新建笔记 2.md").path))
+    }
+
+    func testRenameRequestIsRejectedAfterWorkspaceChanges() {
+        let original = URL(fileURLWithPath: "/tmp/minne-original", isDirectory: true)
+        let replacement = URL(fileURLWithPath: "/tmp/minne-replacement", isDirectory: true)
+
+        XCTAssertFalse(ContentView.isRenameRequestCurrent(
+            originWorkspaceURL: original,
+            currentWorkspaceURL: replacement
+        ))
+    }
+
+    func testRenameRequestRemainsCurrentInOriginWorkspace() {
+        let workspace = URL(fileURLWithPath: "/tmp/minne-workspace", isDirectory: true)
+
+        XCTAssertTrue(ContentView.isRenameRequestCurrent(
+            originWorkspaceURL: workspace,
+            currentWorkspaceURL: workspace
+        ))
+    }
+
+    @MainActor
     func testCreateNoteKeepsExplicitMdExtension() {
         XCTAssertTrue(manager.createNote(at: "需求分析.md"))
         XCTAssertTrue(FileManager.default.fileExists(

@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import OSLog
 
 /// Shared signal that commands (⌘F in the app menu) use to focus the search
@@ -45,14 +46,8 @@ struct ContentView: View {
     @Environment(SaveRequest.self) private var saveRequest
     @Environment(WorkspaceSwitchRequest.self) private var workspaceSwitch
     @FocusState private var searchFocused: Bool
+    @FocusState private var renameFocused: Bool
     private let logger = Logger(subsystem: "Minne", category: "Editor")
-    @State private var showingNewFolder = false
-    @State private var newFolderName = ""
-    @State private var showingNewNote = false
-    @State private var newNoteName = ""
-    /// Folder inside which the current new-note/new-folder dialog creates.
-    /// `nil` = workspace root (used by the toolbar buttons and list empty area).
-    @State private var newItemFolder: String?
     @State private var selectedItem: WorkspaceItem?
     @State private var renamingItem: WorkspaceItem?
     @State private var renameText = ""
@@ -62,6 +57,7 @@ struct ContentView: View {
     @State private var searchText = ""
     @State private var searchResults: [SearchResult] = []
     @State private var searchTask: Task<Void, Never>?
+    @State private var renameTask: Task<Void, Never>?
     /// True while a debounced search query is in flight; gates the no-results
     /// empty state so typing doesn't flash "no results" before the query
     /// returns (T104).
@@ -111,19 +107,19 @@ struct ContentView: View {
                 .toolbar {
                     ToolbarItemGroup {
                         Button {
-                            beginNewFolder(in: nil)
+                            beginNewCategory(in: nil)
                         } label: {
-                            Label("New Folder", systemImage: "folder.badge.plus")
+                            Label("新建分类", systemImage: "folder.badge.plus")
                         }
-                        .help("Create a new folder")
+                        .help("新建分类")
                         .disabled(workspace.workspaceURL == nil)
 
                         Button {
                             beginNewNote(in: nil)
                         } label: {
-                            Label("New Note", systemImage: "square.and.pencil")
+                            Label("新建笔记", systemImage: "square.and.pencil")
                         }
-                        .help("Create a new Markdown note")
+                        .help("新建笔记")
                         .keyboardShortcut("n", modifiers: .command)
                         .disabled(workspace.workspaceURL == nil)
 
@@ -201,6 +197,9 @@ struct ContentView: View {
             workspaceSwitch.fire = false
             changeWorkspace()
         }
+        .onChange(of: workspace.workspaceURL) { _, _ in
+            cancelPendingRename()
+        }
         .onChange(of: searchText) { _, newValue in
             performSearch(newValue)
         }
@@ -228,62 +227,6 @@ struct ContentView: View {
 
     var body: some View {
         baseView
-        .alert("新建文件夹", isPresented: $showingNewFolder) {
-            TextField("文件夹名称", text: $newFolderName)
-            Button("创建") {
-                if workspace.createFolder(at: scopedNewPath(newFolderName)) {
-                    newFolderName = ""
-                } else {
-                    showError("创建文件夹失败：名称无效或同名文件夹已存在。")
-                }
-            }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("在 Workspace 中创建一个新的真实文件夹。")
-        }
-        .alert("新建笔记", isPresented: $showingNewNote) {
-            TextField("笔记名称", text: $newNoteName)
-            Button("创建") {
-                let createPath = scopedNewPath(newNoteName)
-                if workspace.createNote(at: createPath) {
-                    newNoteName = ""
-                    // T112: open the note immediately so the user can start
-                    // typing instead of hunting for the new row in the tree.
-                    openNewNote(createdFrom: createPath)
-                } else {
-                    showError("创建笔记失败：名称无效或同名笔记已存在。")
-                }
-            }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("在 Workspace 中创建一个新的 Markdown 笔记。")
-        }
-        .alert(renamingItem?.kind == .note ? "重命名笔记" : "重命名文件夹",
-               isPresented: renameAlertBinding) {
-            TextField("新名称", text: $renameText)
-            Button("重命名") {
-                guard let item = renamingItem else { return }
-                let succeeded: Bool
-                if item.kind == .note {
-                    guard prepareForNoteMutation(at: item.relativePath) else { return }
-                    succeeded = workspace.renameNote(at: item.relativePath, to: renameText)
-                    if succeeded {
-                        selectRenamedNoteIfNeeded(item, newName: renameText)
-                    }
-                } else {
-                    succeeded = workspace.renameFolder(at: item.relativePath, to: renameText)
-                }
-                if succeeded { renamingItem = nil }
-                else { showError("重命名失败：名称无效或同名项目已存在。") }
-            }
-            Button("取消", role: .cancel) {
-                renamingItem = nil
-            }
-        } message: {
-            Text(renamingItem?.kind == .note
-                ? "输入新的笔记名称（Markdown）。"
-                : "输入新的文件夹名称。")
-        }
         .alert("删除笔记", isPresented: deleteAlertBinding) {
             Button("删除", role: .destructive) {
                 if let item = deletingItem,
@@ -379,39 +322,24 @@ struct ContentView: View {
             // instead of `List(selection:)`. A `List(selection:)` outline also
             // sorts selection conflicts with the adjacent tags list.
             List(workspace.items, children: \.children) { item in
-                Button {
-                    selectedItem = item
-                } label: {
-                    Label {
-                        // T113: hide the `.md` suffix for notes in the tree
-                        // while keeping the real filename in `relativePath`/rename.
-                        Text(sidebarDisplayName(for: item))
-                    } icon: {
-                        Image(systemName: iconName(for: item.kind))
-                    }
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
+                sidebarRow(for: item)
                 .listRowBackground(
                     selectedItem?.relativePath == item.relativePath
                         ? Color.accentColor.opacity(0.15)
                         : nil
                 )
 .contextMenu {
-                    Button("Rename…") {
-                        renamingItem = item
-                        renameText = item.name
+                    Button("重命名") {
+                        startRenaming(item)
                     }
                     if item.kind == .folder {
                         // T103: create inside the right-clicked folder.
                         Divider()
-                        Button("New Note…") {
+                        Button("新建笔记") {
                             beginNewNote(in: item.relativePath)
                         }
-                        Button("New Folder…") {
-                            beginNewFolder(in: item.relativePath)
+                        Button("新建分类") {
+                            beginNewCategory(in: item.relativePath)
                         }
                     }
                     if item.kind == .note {
@@ -439,11 +367,11 @@ struct ContentView: View {
             // creation actions at the workspace root (an empty area has no
             // targeted folder). Row-level context menus handle rename/delete.
             .contextMenu {
-                Button("New Note…") {
+                Button("新建笔记") {
                     beginNewNote(in: nil)
                 }
-                Button("New Folder…") {
-                    beginNewFolder(in: nil)
+                Button("新建分类") {
+                    beginNewCategory(in: nil)
                 }
             }
 
@@ -477,11 +405,98 @@ struct ContentView: View {
         }
     }
 
-    private var renameAlertBinding: Binding<Bool> {
-        Binding(
-            get: { renamingItem != nil },
-            set: { if !$0 { renamingItem = nil } }
-        )
+    @ViewBuilder
+    private func sidebarRow(for item: WorkspaceItem) -> some View {
+        Group {
+            if renamingItem?.relativePath == item.relativePath {
+                Label {
+                    TextField("名称", text: $renameText)
+                        .textFieldStyle(.plain)
+                        .focused($renameFocused)
+                        .onSubmit { commitRename(item) }
+                        .onExitCommand { cancelRename() }
+                        .onAppear { focusRenameField() }
+                        .onChange(of: renameFocused) { wasFocused, isFocused in
+                            if wasFocused && !isFocused {
+                                commitRename(item)
+                            }
+                        }
+                } icon: {
+                    Image(systemName: iconName(for: item.kind))
+                }
+            } else {
+                Button {
+                    selectedItem = item
+                } label: {
+                    Label {
+                        // T113: hide the `.md` suffix while the real filename
+                        // remains in `relativePath` for filesystem operations.
+                        Text(sidebarDisplayName(for: item))
+                    } icon: {
+                        Image(systemName: iconName(for: item.kind))
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .lineLimit(1)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+
+    private func startRenaming(_ item: WorkspaceItem) {
+        renamingItem = item
+        renameText = sidebarDisplayName(for: item)
+        focusRenameField()
+    }
+
+    private func focusRenameField() {
+        DispatchQueue.main.async {
+            renameFocused = true
+            DispatchQueue.main.async {
+                NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil)
+            }
+        }
+    }
+
+    private func cancelRename() {
+        renamingItem = nil
+        renameFocused = false
+    }
+
+    private func commitRename(_ item: WorkspaceItem) {
+        guard renamingItem?.relativePath == item.relativePath else { return }
+        let trimmed = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            showError("重命名失败：名称不能为空。")
+            focusRenameField()
+            return
+        }
+        guard trimmed != sidebarDisplayName(for: item) else {
+            cancelRename()
+            return
+        }
+
+        let succeeded: Bool
+        if item.kind == .note {
+            guard prepareForNoteMutation(at: item.relativePath) else { return }
+            succeeded = workspace.renameNote(at: item.relativePath, to: trimmed)
+            if succeeded {
+                selectRenamedNoteIfNeeded(item, newName: trimmed)
+            }
+        } else {
+            succeeded = workspace.renameFolder(at: item.relativePath, to: trimmed)
+            if succeeded {
+                selectRenamedFolderIfNeeded(item, newName: trimmed)
+            }
+        }
+
+        if succeeded {
+            cancelRename()
+        } else {
+            showError("重命名失败：名称无效或同名项目已存在。")
+            focusRenameField()
+        }
     }
 
     private var deleteAlertBinding: Binding<Bool> {
@@ -531,29 +546,78 @@ struct ContentView: View {
         }
     }
 
-    /// Opens the "new folder" dialog, scoped to `folder` (nil = workspace root).
-    /// T103: used by list empty-area and folder-row context menus, which need a
-    /// target directory the toolbar buttons don't have.
-    private func beginNewFolder(in folder: String?) {
-        newItemFolder = folder
-        newFolderName = ""
-        showingNewFolder = true
+    /// Creates a real folder immediately, then selects its default name in the
+    /// sidebar so typing replaces it without an intermediate dialog.
+    private func beginNewCategory(in folder: String?) {
+        guard let path = workspace.createDefaultFolder(in: folder) else {
+            showError("创建分类失败。")
+            return
+        }
+        let name = (path as NSString).lastPathComponent
+        selectedItem = WorkspaceItem(
+            name: name,
+            kind: .folder,
+            relativePath: path,
+            children: []
+        )
+        startRenamingWhenAvailable(at: path)
     }
 
-    /// Opens the "new note" dialog, scoped to `folder` (nil = workspace root).
-    /// T103: context-menu counterpart of the toolbar's New Note button.
+    /// Creates and opens a Markdown note immediately, then starts inline rename.
     private func beginNewNote(in folder: String?) {
-        newItemFolder = folder
-        newNoteName = ""
-        showingNewNote = true
+        guard let path = workspace.createDefaultNote(in: folder) else {
+            showError("创建笔记失败。")
+            return
+        }
+        openNewNote(createdFrom: path)
+        startRenamingWhenAvailable(at: path)
     }
 
-    /// Joins `newItemFolder` (when set) and `name` into a workspace-relative
-    /// path for `createFolder(at:)` / `createNote(at:)`. A bare name with no
-    /// folder context is passed through unchanged (root-level creation).
-    private func scopedNewPath(_ name: String) -> String {
-        guard let folder = newItemFolder, !folder.isEmpty else { return name }
-        return folder + "/" + name
+    /// `WorkspaceManager.refreshTree()` scans off the main actor. Wait for the
+    /// new row to arrive before putting its TextField into rename mode.
+    private func startRenamingWhenAvailable(at path: String) {
+        guard let originWorkspaceURL = workspace.workspaceURL else { return }
+        renameTask?.cancel()
+        renameTask = Task { @MainActor in
+            for attempt in 0..<50 {
+                guard !Task.isCancelled,
+                      Self.isRenameRequestCurrent(
+                        originWorkspaceURL: originWorkspaceURL,
+                        currentWorkspaceURL: workspace.workspaceURL
+                      ) else { return }
+                if let item = selectedWorkspaceItem(for: path) {
+                    selectedItem = item
+                    renameTask = nil
+                    startRenaming(item)
+                    return
+                }
+                if attempt == 10 {
+                    workspace.refreshTree()
+                }
+                do {
+                    try await Task.sleep(for: .milliseconds(20))
+                } catch {
+                    return
+                }
+            }
+            renameTask = nil
+            showError("项目已创建，但侧栏刷新失败。")
+        }
+    }
+
+    nonisolated static func isRenameRequestCurrent(
+        originWorkspaceURL: URL,
+        currentWorkspaceURL: URL?
+    ) -> Bool {
+        originWorkspaceURL.standardizedFileURL == currentWorkspaceURL?.standardizedFileURL
+    }
+
+    private func cancelPendingRename() {
+        renameTask?.cancel()
+        renameTask = nil
+        if renamingItem != nil {
+            cancelRename()
+        }
     }
 
     /// T112: selects the just-created note so the editor opens on it. Builds
@@ -719,6 +783,14 @@ struct ContentView: View {
         selectedItem = selectedWorkspaceItem(for: newPath)
             ?? WorkspaceItem(name: filename, kind: .note, relativePath: newPath, children: nil)
         reloadNote()
+    }
+
+    private func selectRenamedFolderIfNeeded(_ item: WorkspaceItem, newName: String) {
+        guard selectedItem?.relativePath == item.relativePath else { return }
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parent = (item.relativePath as NSString).deletingLastPathComponent
+        let newPath = parent.isEmpty ? trimmed : "\(parent)/\(trimmed)"
+        selectedItem = selectedWorkspaceItem(for: newPath)
     }
 
     /// T102: persist any pending edit right away (⌘S). Cancels the pending

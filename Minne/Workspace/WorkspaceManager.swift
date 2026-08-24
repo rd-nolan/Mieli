@@ -177,6 +177,19 @@ case .modified:
         }
     }
 
+    /// Creates a real folder with a Finder-style available default name and
+    /// returns its workspace-relative path so the sidebar can rename it inline.
+    func createDefaultFolder(in folder: String?) -> String? {
+        guard let relativePath = availableCreationPath(
+            baseName: "新建分类",
+            pathExtension: nil,
+            in: folder
+        ), createFolder(at: relativePath) else {
+            return nil
+        }
+        return relativePath
+    }
+
     /// Creates a new Markdown note at `name` inside the workspace.
     ///
     /// `name` is the note title (without `.md`) or a Workspace-relative path
@@ -216,6 +229,53 @@ case .modified:
             return true
         } catch {
             return false
+        }
+    }
+
+    /// Creates a Markdown note with an available default name and returns the
+    /// final path, including `.md`, for immediate selection and inline rename.
+    func createDefaultNote(in folder: String?) -> String? {
+        guard let relativePath = availableCreationPath(
+            baseName: "新建笔记",
+            pathExtension: "md",
+            in: folder
+        ), createNote(at: relativePath) else {
+            return nil
+        }
+        return relativePath
+    }
+
+    private func availableCreationPath(
+        baseName: String,
+        pathExtension: String?,
+        in folder: String?
+    ) -> String? {
+        guard let root = workspaceURL else { return nil }
+
+        let parent = folder?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !parent.isEmpty {
+            guard isValidWorkspacePath(parent) else { return nil }
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(
+                atPath: root.appendingPathComponent(parent).path,
+                isDirectory: &isDirectory
+            ), isDirectory.boolValue else {
+                return nil
+            }
+        }
+
+        var number = 1
+        while true {
+            let name = number == 1 ? baseName : "\(baseName) \(number)"
+            let filename = pathExtension.map { "\(name).\($0)" } ?? name
+            let relativePath = parent.isEmpty ? filename : "\(parent)/\(filename)"
+            guard isValidWorkspacePath(relativePath) else { return nil }
+            if !FileManager.default.fileExists(
+                atPath: root.appendingPathComponent(relativePath).path
+            ) {
+                return relativePath
+            }
+            number += 1
         }
     }
 
