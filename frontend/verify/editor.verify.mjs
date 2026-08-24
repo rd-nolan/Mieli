@@ -253,14 +253,14 @@ const codeBlockLabelRule = /\.ProseMirror\s+pre::before\s*\{([^}]*)\}/s
 const sharedBlockLabelRule = /\.ProseMirror\s*>\s*h1::before,[\s\S]*?\.ProseMirror\s*>\s*hr::before\s*\{([^}]*)\}/s
   .exec(html)?.[1] ?? "";
 const codeBlockLabelStyleOK = /content:\s*var\(--mieli-label-code\)/.test(codeBlockLabelRule)
-  && /writing-mode:\s*vertical-rl/.test(sharedBlockLabelRule)
+  && /writing-mode:\s*horizontal-tb/.test(sharedBlockLabelRule)
   && /right:\s*calc\(100%\s*\+/.test(sharedBlockLabelRule);
 console.log(codeBlockLabelStyleOK
-  ? "PASS  outside vertical code block label"
-  : "FAIL  outside vertical code block label");
+  ? "PASS  outside horizontal code block label"
+  : "FAIL  outside horizontal code block label");
 if (!codeBlockLabelStyleOK) process.exitCode = 1;
 
-const verticalBlockLabels = [
+const horizontalBlockLabels = [
   ["h1", "[\\\"']H1[\\\"']"],
   ["h2", "[\\\"']H2[\\\"']"],
   ["h3", "[\\\"']H3[\\\"']"],
@@ -274,7 +274,7 @@ const verticalBlockLabels = [
   ['[data-table-wrapper="true"]', "var\\(--mieli-label-table\\)"],
   ["hr", "var\\(--mieli-label-divider\\)"],
 ];
-const missingBlockLabels = verticalBlockLabels.filter(([selector, content]) => {
+const missingBlockLabels = horizontalBlockLabels.filter(([selector, content]) => {
   const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const rules = [...html.matchAll(
     new RegExp(`\\.ProseMirror\\s*>\\s*${escapedSelector}::before\\s*\\{([^}]*)\\}`, "gs"),
@@ -283,24 +283,15 @@ const missingBlockLabels = verticalBlockLabels.filter(([selector, content]) => {
 });
 const mermaidLabelOK = /\.ProseMirror\s+pre\[data-language=["']mermaid["']\]::before\s*\{[^}]*content:\s*["']Mermaid["']/s
   .test(html);
-const verticalLabelLayoutOK = /writing-mode:\s*vertical-rl/.test(sharedBlockLabelRule)
+const horizontalLabelLayoutOK = /writing-mode:\s*horizontal-tb/.test(sharedBlockLabelRule)
   && /white-space:\s*nowrap/.test(sharedBlockLabelRule)
+  && /overflow:\s*hidden/.test(sharedBlockLabelRule)
+  && /text-overflow:\s*ellipsis/.test(sharedBlockLabelRule)
   && /right:\s*calc\(100%\s*\+/.test(sharedBlockLabelRule);
-const headingLabelRules = [...html.matchAll(
-  /\.ProseMirror\s*>\s*h1::before,[\s\S]*?\.ProseMirror\s*>\s*h6::before\s*\{([^}]*)\}/gs,
-)].map((match) => match[1]);
-const headingLabelCombinationOK = headingLabelRules.some((rule) =>
-  /text-combine-upright:\s*all/.test(rule)
-    && /writing-mode:\s*horizontal-tb/.test(rule)
-    && /letter-spacing:\s*0/.test(rule));
-console.log(missingBlockLabels.length === 0 && verticalLabelLayoutOK && mermaidLabelOK
-  ? "PASS  vertical labels for all block types"
-  : `FAIL  vertical block labels missing=${missingBlockLabels.map(([s]) => s).join(",")} layout=${verticalLabelLayoutOK} mermaid=${mermaidLabelOK}`);
-if (missingBlockLabels.length || !verticalLabelLayoutOK || !mermaidLabelOK) process.exitCode = 1;
-console.log(headingLabelCombinationOK
-  ? "PASS  combined upright heading labels"
-  : "FAIL  combined upright heading labels");
-if (!headingLabelCombinationOK) process.exitCode = 1;
+console.log(missingBlockLabels.length === 0 && horizontalLabelLayoutOK && mermaidLabelOK
+  ? "PASS  horizontal labels with ellipsis for all block types"
+  : `FAIL  horizontal block labels missing=${missingBlockLabels.map(([s]) => s).join(",")} layout=${horizontalLabelLayoutOK} mermaid=${mermaidLabelOK}`);
+if (missingBlockLabels.length || !horizontalLabelLayoutOK || !mermaidLabelOK) process.exitCode = 1;
 
 const editorLanguageVariablesOK = /:root\s*\{[^}]*--mieli-label-code:\s*["']Code["'][^}]*--mieli-hint-code-exit:\s*["']⌘ Return to exit["']/s.test(html)
   && /:root:lang\(zh-Hans\)[^{]*\{[^}]*--mieli-label-code:\s*["']代码["'][^}]*--mieli-hint-code-exit:\s*["']⌘ Return 跳出["']/s.test(html);

@@ -37,7 +37,7 @@
     }
     body {
       margin: 0;
-      padding: 4px 24px 24px;
+      padding: 8px 48px 32px;
       font-family: -apple-system, system-ui, "Helvetica Neue", sans-serif;
     }
     #editor {
@@ -140,15 +140,17 @@
       position: absolute;
       top: 0.15em;
       right: calc(100% + 0.55em);
+      max-width: 40px;
       font-family: -apple-system, BlinkMacSystemFont, sans-serif;
       font-size: 10px;
       font-weight: 600;
       line-height: 1.2;
-      letter-spacing: 0.08em;
       color: rgba(60, 60, 67, 0.48);
-      writing-mode: vertical-rl;
-      text-orientation: upright;
+      writing-mode: horizontal-tb;
+      text-align: right;
       white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
       pointer-events: none;
       user-select: none;
     }
@@ -158,16 +160,6 @@
     .ProseMirror > h4::before { content: "H4"; }
     .ProseMirror > h5::before { content: "H5"; }
     .ProseMirror > h6::before { content: "H6"; }
-    .ProseMirror > h1::before,
-    .ProseMirror > h2::before,
-    .ProseMirror > h3::before,
-    .ProseMirror > h4::before,
-    .ProseMirror > h5::before,
-    .ProseMirror > h6::before {
-      text-combine-upright: all;
-      writing-mode: horizontal-tb;
-      letter-spacing: 0;
-    }
     .ProseMirror > blockquote::before { content: var(--mieli-label-quote); }
     .ProseMirror > ul::before { content: var(--mieli-label-unordered-list); }
     .ProseMirror > ol::before { content: var(--mieli-label-ordered-list); }
@@ -226,7 +218,6 @@
     }
     .ProseMirror pre[data-language="mermaid"]::before {
       content: "Mermaid";
-      text-orientation: mixed;
     }
     .ProseMirror pre::after {
       content: var(--mieli-hint-code-exit);
