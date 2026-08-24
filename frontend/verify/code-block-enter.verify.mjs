@@ -9,18 +9,18 @@ import { JSDOM } from "jsdom";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const frontendRoot = path.resolve(__dirname, "..");
 const sourcePath = path.join(frontendRoot, "src/index.js");
-const editorHTMLPath = path.resolve(frontendRoot, "../Minne/Resources/editor.html");
+const editorHTMLPath = path.resolve(frontendRoot, "../Muisti/Resources/editor.html");
 
-// Expose the real editor view and Minne Enter plugin only in this in-memory
+// Expose the real editor view and Muisti Enter plugin only in this in-memory
 // verification bundle. Production globals and bundled resources stay unchanged.
 const instrumentedSource = readFileSync(sourcePath, "utf8")
   .replace(
     "const blockOnEnter = new Plugin({",
-    "const blockOnEnter = window.__minneBlockOnEnter = new Plugin({",
+    "const blockOnEnter = window.__muistiBlockOnEnter = new Plugin({",
   )
   .replace(
-    "window.minneEditor = {",
-    "window.__minneEditorView = view;\n  window.minneEditor = {",
+    "window.muistiEditor = {",
+    "window.__muistiEditorView = view;\n  window.muistiEditor = {",
   );
 
 const buildResult = await build({
@@ -38,7 +38,7 @@ const javascript = buildResult.outputFiles.find((file) => file.path.endsWith(".j
 assert.ok(javascript, "instrumented editor JavaScript should build");
 
 const dom = new JSDOM(readFileSync(editorHTMLPath, "utf8"), {
-  url: "file:///minne/editor.html",
+  url: "file:///muisti/editor.html",
   runScripts: "dangerously",
   beforeParse(window) {
     window.console = console;
@@ -55,11 +55,11 @@ const script = window.document.createElement("script");
 script.textContent = javascript;
 window.document.body.appendChild(script);
 
-await poll(() => window.minneEditor?.isReady());
+await poll(() => window.muistiEditor?.isReady());
 
-const editor = window.minneEditor;
-const view = window.__minneEditorView;
-const enterPlugin = window.__minneBlockOnEnter;
+const editor = window.muistiEditor;
+const view = window.__muistiEditorView;
+const enterPlugin = window.__muistiBlockOnEnter;
 assert.ok(view && enterPlugin, "instrumented editor internals should be available");
 
 editor.setMarkdown("```swift\nlet value = 1\n```");
@@ -79,7 +79,7 @@ const handled = enterPlugin.props.handleKeyDown(view, {
   shiftKey: false,
 });
 
-assert.equal(handled, true, "Minne Enter handler should consume Return in a code block");
+assert.equal(handled, true, "Muisti Enter handler should consume Return in a code block");
 assert.equal(
   view.state.doc.nodeAt(codePosition).textContent,
   "let value = 1\n",
@@ -242,7 +242,7 @@ const headingHandled = enterPlugin.props.handleKeyDown(view, {
   key: "Enter",
   shiftKey: false,
 });
-assert.equal(headingHandled, true, "Minne Enter handler should consume Return at a heading end");
+assert.equal(headingHandled, true, "Muisti Enter handler should consume Return at a heading end");
 assert.equal(view.state.doc.childCount, 2, "Return at a heading end should append a block");
 assert.equal(
   view.state.doc.child(1).type.name,
