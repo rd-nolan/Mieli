@@ -91,8 +91,60 @@ mod tests {
         assert!(tree.iter().all(|node| node.expanded));
     }
 
+    #[test]
+    fn scanner_uses_full_path_to_break_equal_lowercase_name_collisions() {
+        let capability_probe = TempDir::new();
+        if !supports_case_distinct_siblings(capability_probe.path()) {
+            return;
+        }
+
+        let temp = TempDir::root_with(&["ALPHA/first.md", "alpha/second.md", "Beta.md", "beta.MD"]);
+
+        let tree = scan_markdown_tree(temp.path()).unwrap();
+
+        assert_eq!(
+            tree_names(&tree),
+            vec!["ALPHA/", "alpha/", "Beta.md", "beta.MD"]
+        );
+
+        let alpha_dir_paths = tree
+            .iter()
+            .filter(|node| node.is_dir && node.name.eq_ignore_ascii_case("alpha/"))
+            .map(|node| node.path.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            alpha_dir_paths,
+            vec![temp.path().join("ALPHA"), temp.path().join("alpha")]
+        );
+
+        let beta_file_paths = tree
+            .iter()
+            .filter(|node| !node.is_dir && node.name.eq_ignore_ascii_case("beta.md"))
+            .map(|node| node.path.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            beta_file_paths,
+            vec![temp.path().join("Beta.md"), temp.path().join("beta.MD")]
+        );
+    }
+
     fn tree_names(nodes: &[FileTreeNode]) -> Vec<String> {
         nodes.iter().map(|node| node.name.clone()).collect()
+    }
+
+    fn supports_case_distinct_siblings(root: &Path) -> bool {
+        let lower = root.join("alpha");
+        let upper = root.join("ALPHA");
+
+        if fs::create_dir_all(&lower).is_err() {
+            return false;
+        }
+
+        match fs::create_dir(&upper) {
+            Ok(()) => true,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => false,
+            Err(_) => false,
+        }
     }
 
     struct TempDir {
@@ -100,7 +152,7 @@ mod tests {
     }
 
     impl TempDir {
-        fn root_with(paths: &[&str]) -> Self {
+        fn new() -> Self {
             static COUNTER: AtomicU64 = AtomicU64::new(0);
 
             let unique = SystemTime::now()
@@ -111,6 +163,13 @@ mod tests {
             let path = std::env::temp_dir().join(format!("mieli-task-2-{unique}-{suffix}"));
             fs::create_dir_all(&path).unwrap();
 
+            Self { path }
+        }
+
+        fn root_with(paths: &[&str]) -> Self {
+            let temp = Self::new();
+            let path = temp.path.clone();
+
             for relative in paths {
                 let file_path = path.join(relative);
                 if let Some(parent) = file_path.parent() {
@@ -119,7 +178,7 @@ mod tests {
                 fs::write(&file_path, relative).unwrap();
             }
 
-            Self { path }
+            temp
         }
 
         fn path(&self) -> &Path {
