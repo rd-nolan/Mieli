@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeSet,
+    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
     sync::mpsc,
@@ -91,7 +91,7 @@ impl std::error::Error for WatchError {}
 pub struct FileWatcherService {
     watcher: RecommendedWatcher,
     receiver: mpsc::Receiver<FileSystemEvent>,
-    watched: BTreeSet<PathBuf>,
+    watched: BTreeMap<PathBuf, RecursiveMode>,
 }
 
 impl FileWatcherService {
@@ -107,7 +107,7 @@ impl FileWatcherService {
         Ok(Self {
             watcher,
             receiver,
-            watched: BTreeSet::new(),
+            watched: BTreeMap::new(),
         })
     }
 
@@ -139,9 +139,8 @@ pub fn translate_event(kind: EventKind, path: PathBuf) -> FileSystemEvent {
     match kind {
         EventKind::Create(_) => FileSystemEvent::Created(path),
         EventKind::Remove(_) => FileSystemEvent::Removed(path),
-        EventKind::Modify(_) | EventKind::Any | EventKind::Access(_) | EventKind::Other => {
-            FileSystemEvent::Changed(path)
-        }
+        EventKind::Modify(_) => FileSystemEvent::Changed(path),
+        EventKind::Any | EventKind::Access(_) | EventKind::Other => unsupported_event(kind, path),
     }
 }
 
@@ -176,21 +175,36 @@ fn translate_notify_error(error: notify::Error) -> Vec<FileSystemEvent> {
 }
 
 fn ensure_watched<W: Watcher>(
-    watched: &mut BTreeSet<PathBuf>,
+    watched: &mut BTreeMap<PathBuf, RecursiveMode>,
     watcher: &mut W,
     path: &Path,
     recursive_mode: RecursiveMode,
 ) -> Result<(), WatchError> {
     let canonical = canonical_watch_directory(path)?;
-    if watched.contains(&canonical) {
-        return Ok(());
+    match watched.get(&canonical).copied() {
+        Some(current_mode) if current_mode == recursive_mode => return Ok(()),
+        Some(RecursiveMode::Recursive) => return Ok(()),
+        Some(RecursiveMode::NonRecursive) if recursive_mode == RecursiveMode::Recursive => {
+            watcher
+                .unwatch(&canonical)
+                .map_err(|error| WatchError::from_notify(&canonical, "unwatch", error))?;
+        }
+        Some(RecursiveMode::NonRecursive) => return Ok(()),
+        None => {}
     }
 
     watcher
         .watch(&canonical, recursive_mode)
         .map_err(|error| WatchError::from_notify(&canonical, "watch", error))?;
-    watched.insert(canonical);
+    watched.insert(canonical, recursive_mode);
     Ok(())
+}
+
+fn unsupported_event(kind: EventKind, path: PathBuf) -> FileSystemEvent {
+    FileSystemEvent::Error {
+        path: Some(path),
+        message: format!("Unsupported filesystem event kind: {kind:?}"),
+    }
 }
 
 fn canonical_watch_directory(path: &Path) -> Result<PathBuf, WatchError> {
@@ -263,7 +277,7 @@ mod tests {
         let canonical = fs::canonicalize(&workspace).unwrap();
         let calls = RefCell::new(Vec::new());
         let mut watcher = FakeWatcher::new(&calls);
-        let mut watched = std::collections::BTreeSet::new();
+        let mut watched = std::collections::BTreeMap::new();
 
         ensure_watched(
             &mut watched,
@@ -282,11 +296,46 @@ mod tests {
 
         assert_eq!(
             watched.into_iter().collect::<Vec<_>>(),
-            vec![canonical.clone()]
+            vec![(canonical.clone(), RecursiveMode::Recursive)]
         );
         assert_eq!(
             calls.into_inner(),
-            vec![(canonical, RecursiveMode::Recursive)]
+            vec![WatchOperation::Watch(canonical, RecursiveMode::Recursive)]
+        );
+    }
+
+    #[test]
+    fn recursive_watch_upgrades_an_existing_non_recursive_watch() {
+        let temp = TempDir::new();
+        let workspace = temp.path().join("workspace");
+        fs::create_dir_all(&workspace).unwrap();
+        let canonical = fs::canonicalize(&workspace).unwrap();
+        let calls = RefCell::new(Vec::new());
+        let mut watcher = FakeWatcher::new(&calls);
+        let mut watched = std::collections::BTreeMap::new();
+
+        ensure_watched(
+            &mut watched,
+            &mut watcher,
+            &workspace,
+            RecursiveMode::NonRecursive,
+        )
+        .unwrap();
+        ensure_watched(
+            &mut watched,
+            &mut watcher,
+            &workspace,
+            RecursiveMode::Recursive,
+        )
+        .unwrap();
+
+        assert_eq!(
+            calls.into_inner(),
+            vec![
+                WatchOperation::Watch(canonical.clone(), RecursiveMode::NonRecursive),
+                WatchOperation::Unwatch(canonical.clone()),
+                WatchOperation::Watch(canonical, RecursiveMode::Recursive),
+            ]
         );
     }
 
@@ -305,7 +354,7 @@ mod tests {
         let canonical_parent = fs::canonicalize(&parent).unwrap();
         let calls = RefCell::new(Vec::new());
         let mut watcher = FakeWatcher::new(&calls);
-        let mut watched = std::collections::BTreeSet::new();
+        let mut watched = std::collections::BTreeMap::new();
 
         ensure_watched(
             &mut watched,
@@ -317,7 +366,10 @@ mod tests {
 
         assert_eq!(
             calls.into_inner(),
-            vec![(canonical_parent, RecursiveMode::NonRecursive)]
+            vec![WatchOperation::Watch(
+                canonical_parent,
+                RecursiveMode::NonRecursive
+            )]
         );
 
         let home = directories::BaseDirs::new()
@@ -343,16 +395,50 @@ mod tests {
         );
     }
 
+    #[test]
+    fn unknown_notify_kinds_are_reduced_to_error_events() {
+        assert_eq!(
+            translate_event(EventKind::Any, path("A.md")),
+            FileSystemEvent::Error {
+                path: Some(path("A.md")),
+                message: "Unsupported filesystem event kind: Any".to_string(),
+            }
+        );
+        assert_eq!(
+            translate_event(EventKind::Other, path("B.md")),
+            FileSystemEvent::Error {
+                path: Some(path("B.md")),
+                message: "Unsupported filesystem event kind: Other".to_string(),
+            }
+        );
+        assert_eq!(
+            translate_event(
+                EventKind::Access(notify::event::AccessKind::Any),
+                path("C.md")
+            ),
+            FileSystemEvent::Error {
+                path: Some(path("C.md")),
+                message: "Unsupported filesystem event kind: Access(Any)".to_string(),
+            }
+        );
+    }
+
     fn path(value: &str) -> PathBuf {
         PathBuf::from(value)
     }
 
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    enum WatchOperation {
+        Watch(PathBuf, RecursiveMode),
+        Unwatch(PathBuf),
+    }
+
     struct FakeWatcher<'a> {
-        calls: &'a RefCell<Vec<(PathBuf, RecursiveMode)>>,
+        calls: &'a RefCell<Vec<WatchOperation>>,
     }
 
     impl<'a> FakeWatcher<'a> {
-        fn new(calls: &'a RefCell<Vec<(PathBuf, RecursiveMode)>>) -> Self {
+        fn new(calls: &'a RefCell<Vec<WatchOperation>>) -> Self {
             Self { calls }
         }
     }
@@ -368,11 +454,14 @@ mod tests {
         fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> notify::Result<()> {
             self.calls
                 .borrow_mut()
-                .push((path.to_path_buf(), recursive_mode));
+                .push(WatchOperation::Watch(path.to_path_buf(), recursive_mode));
             Ok(())
         }
 
-        fn unwatch(&mut self, _: &Path) -> notify::Result<()> {
+        fn unwatch(&mut self, path: &Path) -> notify::Result<()> {
+            self.calls
+                .borrow_mut()
+                .push(WatchOperation::Unwatch(path.to_path_buf()));
             Ok(())
         }
 

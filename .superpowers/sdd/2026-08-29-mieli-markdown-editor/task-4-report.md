@@ -65,3 +65,34 @@ Task: Implement watcher translation and autosave eligibility
 ## Concerns
 
 - `notify` kinds outside create/modify/remove are currently reduced to `Changed` so the later app-state layer can stay deterministic without platform-specific branching. If Task 5 needs finer behavior for access/meta events, that can be tightened there without changing the watcher ownership boundary.
+
+## Post-Review Fixes
+
+Review date: 2026-08-29
+
+- Fixed watched-path deduplication so canonical path tracking now stores the effective `RecursiveMode` and upgrades an existing non-recursive watch to recursive by re-registering the live watcher.
+- Fixed unknown `notify` kind handling so `EventKind::Any`, `EventKind::Access(_)`, and `EventKind::Other` now emit explicit `FileSystemEvent::Error` values instead of being treated as content changes.
+
+### Post-Review TDD Evidence
+
+- Added focused regression tests first:
+  - `recursive_watch_upgrades_an_existing_non_recursive_watch`
+  - `unknown_notify_kinds_are_reduced_to_error_events`
+- Verified red:
+  - first regression failed because only the initial non-recursive watch was recorded
+  - second regression failed because `EventKind::Any` still mapped to `Changed`
+- Implemented the minimal watcher changes in `src/file/watcher.rs`.
+- Verified green:
+  - `cargo test recursive_watch_upgrades_an_existing_non_recursive_watch` -> passed
+  - `cargo test unknown_notify_kinds_are_reduced_to_error_events` -> passed
+
+### Post-Review Verification
+
+- `cargo test file::watcher::` -> passed (`6 passed, 18 filtered out`)
+- `cargo test autosave::` -> passed (`2 passed, 22 filtered out`)
+- `cargo fmt --check` -> passed
+- `cargo test` -> passed (`24 passed`)
+
+### Remaining Concerns
+
+- None specific to the reviewed issues. Unsupported watcher kinds now surface explicitly and recursive workspace coverage is no longer blocked by an earlier non-recursive registration.
