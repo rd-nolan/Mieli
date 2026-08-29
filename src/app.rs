@@ -6,8 +6,10 @@ use std::{
 };
 
 use gpui::AppContext as _;
+use gpui::prelude::*;
 
 use crate::{
+    actions,
     autosave::{AutosaveKey, autosave_is_current},
     config::recent::RecentFiles,
     file::{
@@ -187,6 +189,31 @@ enum CloseAction {
     RequestDecision,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TabDirection {
+    Next,
+    Previous,
+}
+
+fn adjacent_tab_id(
+    tabs: &[TabId],
+    active_tab: Option<TabId>,
+    direction: TabDirection,
+) -> Option<TabId> {
+    if tabs.is_empty() {
+        return None;
+    }
+
+    let current = active_tab.and_then(|active| tabs.iter().position(|tab| *tab == active));
+    let index = match (current, direction) {
+        (Some(index), TabDirection::Next) => (index + 1) % tabs.len(),
+        (Some(0), TabDirection::Previous) | (None, TabDirection::Previous) => tabs.len() - 1,
+        (Some(index), TabDirection::Previous) => index - 1,
+        (None, TabDirection::Next) => 0,
+    };
+    Some(tabs[index])
+}
+
 fn close_action(dirty: bool) -> CloseAction {
     if dirty {
         CloseAction::RequestDecision
@@ -212,7 +239,15 @@ pub enum LifecycleError {
     NoActiveTab,
     MissingTab(TabId),
     SaveAsRequired(TabId),
-    PathAlreadyOpen { path: PathBuf, tab_id: TabId },
+    PathAlreadyOpen {
+        path: PathBuf,
+        tab_id: TabId,
+    },
+    MissingRecentEntry(usize),
+    MissingRecentFile {
+        path: PathBuf,
+        cleanup_error: Option<String>,
+    },
 }
 
 impl fmt::Display for LifecycleError {
@@ -227,6 +262,23 @@ impl fmt::Display for LifecycleError {
             }
             Self::PathAlreadyOpen { path, tab_id } => {
                 write!(f, "{} is already open in tab {}.", path.display(), tab_id.0)
+            }
+            Self::MissingRecentEntry(index) => {
+                write!(f, "Recent file entry {} is no longer available.", index + 1)
+            }
+            Self::MissingRecentFile {
+                path,
+                cleanup_error,
+            } => {
+                write!(
+                    f,
+                    "Could not open recent file {}: file not found. The entry was removed",
+                    path.display()
+                )?;
+                if let Some(error) = cleanup_error {
+                    write!(f, ", but the recent-files list could not be saved: {error}")?;
+                }
+                f.write_str(".")
             }
         }
     }
@@ -256,7 +308,7 @@ pub struct Mieli {
 }
 
 impl Mieli {
-    pub fn new(_: &mut gpui::Context<Self>) -> Self {
+    pub fn new(cx: &mut gpui::Context<Self>) -> Self {
         let (recent_files, recent_error) = RecentFiles::load();
         let (watcher, watcher_error) = match FileWatcherService::new() {
             Ok(watcher) => (Some(watcher), None),
@@ -266,7 +318,7 @@ impl Mieli {
             .map(Notification::error)
             .or_else(|| recent_error.map(Notification::error));
 
-        Self {
+        let this = Self {
             state: AppState {
                 workspace_root: None,
                 sidebar_visible: false,
@@ -281,7 +333,9 @@ impl Mieli {
             watcher,
             autosave_tasks: HashMap::new(),
             open_tab_paths: OpenTabPaths::default(),
-        }
+        };
+        actions::set_file_menu(cx, this.state.recent_files.paths());
+        this
     }
 
     pub fn new_tab(&mut self, cx: &mut gpui::Context<Self>) -> TabId {
@@ -344,6 +398,7 @@ impl Mieli {
         if let Err(error) = self.state.recent_files.record_success(&canonical) {
             self.notification = Some(Notification::error(error));
         }
+        actions::set_file_menu(cx, self.state.recent_files.paths());
         self.watch_open_file(&canonical);
         cx.notify();
         Ok(tab_id)
@@ -410,6 +465,7 @@ impl Mieli {
         if let Err(error) = self.state.recent_files.record_success(&canonical) {
             self.notification = Some(Notification::error(error));
         }
+        actions::set_file_menu(cx, self.state.recent_files.paths());
         self.refresh_workspace_tree();
         self.refresh_watcher();
         cx.notify();
@@ -494,8 +550,116 @@ impl Mieli {
     }
 
     pub fn save_active(&mut self, cx: &mut gpui::Context<Self>) -> Result<(), LifecycleError> {
-        let tab_id = self.state.active_tab.ok_or(LifecycleError::NoActiveTab)?;
+        let Some(tab_id) = self.state.active_tab else {
+            return self.lifecycle_failure(LifecycleError::NoActiveTab);
+        };
         self.save_tab(tab_id, cx)
+    }
+
+    pub fn open_file_dialog(&mut self, cx: &mut gpui::Context<Self>) -> Result<(), LifecycleError> {
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("Markdown", &["md", "markdown"])
+            .pick_file()
+        else {
+            return Ok(());
+        };
+        self.open_file(path, cx).map(|_| ())
+    }
+
+    pub fn open_folder_dialog(
+        &mut self,
+        cx: &mut gpui::Context<Self>,
+    ) -> Result<(), LifecycleError> {
+        let Some(path) = rfd::FileDialog::new().pick_folder() else {
+            return Ok(());
+        };
+        self.open_folder(path, cx)
+    }
+
+    pub fn save_active_as(&mut self, cx: &mut gpui::Context<Self>) -> Result<(), LifecycleError> {
+        let Some(tab_id) = self.state.active_tab else {
+            return self.lifecycle_failure(LifecycleError::NoActiveTab);
+        };
+        let Some(index) = self.tab_index(tab_id) else {
+            return self.lifecycle_failure(LifecycleError::MissingTab(tab_id));
+        };
+        let title = self.state.tabs[index].title.clone();
+        let Some(destination) = rfd::FileDialog::new().set_file_name(title).save_file() else {
+            return Ok(());
+        };
+        self.save_as(tab_id, destination, cx).map(|_| ())
+    }
+
+    pub fn save_all(&mut self, cx: &mut gpui::Context<Self>) -> Result<(), LifecycleError> {
+        let dirty_tabs = self
+            .state
+            .tabs
+            .iter()
+            .filter(|tab| tab.dirty)
+            .map(|tab| tab.id)
+            .collect::<Vec<_>>();
+        for tab_id in dirty_tabs {
+            self.save_tab(tab_id, cx)?;
+        }
+        Ok(())
+    }
+
+    pub fn close_active(&mut self, cx: &mut gpui::Context<Self>) -> bool {
+        self.state
+            .active_tab
+            .is_some_and(|tab_id| self.close_tab(tab_id, cx))
+    }
+
+    pub fn toggle_sidebar(&mut self, cx: &mut gpui::Context<Self>) -> bool {
+        self.state.sidebar_visible = !self.state.sidebar_visible;
+        cx.notify();
+        self.state.sidebar_visible
+    }
+
+    pub fn next_tab(&mut self, cx: &mut gpui::Context<Self>) -> bool {
+        self.navigate_tab(TabDirection::Next, cx)
+    }
+
+    pub fn previous_tab(&mut self, cx: &mut gpui::Context<Self>) -> bool {
+        self.navigate_tab(TabDirection::Previous, cx)
+    }
+
+    pub fn refresh_tree(&mut self, cx: &mut gpui::Context<Self>) {
+        self.refresh_workspace_tree();
+        cx.notify();
+    }
+
+    pub fn open_recent(
+        &mut self,
+        index: usize,
+        cx: &mut gpui::Context<Self>,
+    ) -> Result<(), LifecycleError> {
+        let Some(path) = self.state.recent_files.paths().get(index).cloned() else {
+            return self.lifecycle_failure(LifecycleError::MissingRecentEntry(index));
+        };
+
+        match self.open_file(path.clone(), cx) {
+            Ok(_) => Ok(()),
+            Err(LifecycleError::File(FileError::NotFound { .. })) => {
+                let cleanup_error = self
+                    .state
+                    .recent_files
+                    .remove(&path)
+                    .err()
+                    .map(|error| error.to_string());
+                actions::set_file_menu(cx, self.state.recent_files.paths());
+                cx.notify();
+                self.lifecycle_failure(LifecycleError::MissingRecentFile {
+                    path,
+                    cleanup_error,
+                })
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    pub fn quit(&mut self, cx: &mut gpui::Context<Self>) {
+        cx.quit();
     }
 
     pub fn autosave_key_is_current(&self, key: &AutosaveKey) -> bool {
@@ -503,6 +667,110 @@ impl Mieli {
             let tab = &self.state.tabs[index];
             autosave_is_current(key, tab.id, tab.autosave_generation, &tab.path, tab.dirty)
         })
+    }
+
+    fn navigate_tab(&mut self, direction: TabDirection, cx: &mut gpui::Context<Self>) -> bool {
+        let tabs = self.state.tabs.iter().map(|tab| tab.id).collect::<Vec<_>>();
+        adjacent_tab_id(&tabs, self.state.active_tab, direction)
+            .is_some_and(|tab_id| self.switch_tab(tab_id, cx))
+    }
+
+    fn on_open_file(
+        &mut self,
+        _: &actions::OpenFile,
+        _: &mut gpui::Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let _ = self.open_file_dialog(cx);
+    }
+
+    fn on_open_folder(
+        &mut self,
+        _: &actions::OpenFolder,
+        _: &mut gpui::Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let _ = self.open_folder_dialog(cx);
+    }
+
+    fn on_save(&mut self, _: &actions::Save, _: &mut gpui::Window, cx: &mut gpui::Context<Self>) {
+        let _ = self.save_active(cx);
+    }
+
+    fn on_save_as(
+        &mut self,
+        _: &actions::SaveAs,
+        _: &mut gpui::Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let _ = self.save_active_as(cx);
+    }
+
+    fn on_save_all(
+        &mut self,
+        _: &actions::SaveAll,
+        _: &mut gpui::Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let _ = self.save_all(cx);
+    }
+
+    fn on_close_tab(
+        &mut self,
+        _: &actions::CloseTab,
+        _: &mut gpui::Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        self.close_active(cx);
+    }
+
+    fn on_toggle_sidebar(
+        &mut self,
+        _: &actions::ToggleSidebar,
+        _: &mut gpui::Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        self.toggle_sidebar(cx);
+    }
+
+    fn on_next_tab(
+        &mut self,
+        _: &actions::NextTab,
+        _: &mut gpui::Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        self.next_tab(cx);
+    }
+
+    fn on_previous_tab(
+        &mut self,
+        _: &actions::PreviousTab,
+        _: &mut gpui::Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        self.previous_tab(cx);
+    }
+
+    fn on_refresh_tree(
+        &mut self,
+        _: &actions::RefreshTree,
+        _: &mut gpui::Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        self.refresh_tree(cx);
+    }
+
+    fn on_quit(&mut self, _: &actions::Quit, _: &mut gpui::Window, cx: &mut gpui::Context<Self>) {
+        self.quit(cx);
+    }
+
+    fn on_open_recent<A: gpui::Action + actions::RecentAction>(
+        &mut self,
+        _: &A,
+        _: &mut gpui::Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let _ = self.open_recent(actions::recent_position::<A>(), cx);
     }
 
     fn create_editor(
@@ -630,9 +898,40 @@ impl gpui::Render for Mieli {
     fn render(
         &mut self,
         _: &mut gpui::Window,
-        _: &mut gpui::Context<Self>,
+        cx: &mut gpui::Context<Self>,
     ) -> impl gpui::IntoElement {
         gpui::div()
+            .on_action(cx.listener(Self::on_open_file))
+            .on_action(cx.listener(Self::on_open_folder))
+            .on_action(cx.listener(Self::on_save))
+            .on_action(cx.listener(Self::on_save_as))
+            .on_action(cx.listener(Self::on_save_all))
+            .on_action(cx.listener(Self::on_close_tab))
+            .on_action(cx.listener(Self::on_toggle_sidebar))
+            .on_action(cx.listener(Self::on_next_tab))
+            .on_action(cx.listener(Self::on_previous_tab))
+            .on_action(cx.listener(Self::on_refresh_tree))
+            .on_action(cx.listener(Self::on_quit))
+            .on_action(cx.listener(Self::on_open_recent::<actions::OpenRecent1>))
+            .on_action(cx.listener(Self::on_open_recent::<actions::OpenRecent2>))
+            .on_action(cx.listener(Self::on_open_recent::<actions::OpenRecent3>))
+            .on_action(cx.listener(Self::on_open_recent::<actions::OpenRecent4>))
+            .on_action(cx.listener(Self::on_open_recent::<actions::OpenRecent5>))
+            .on_action(cx.listener(Self::on_open_recent::<actions::OpenRecent6>))
+            .on_action(cx.listener(Self::on_open_recent::<actions::OpenRecent7>))
+            .on_action(cx.listener(Self::on_open_recent::<actions::OpenRecent8>))
+            .on_action(cx.listener(Self::on_open_recent::<actions::OpenRecent9>))
+            .on_action(cx.listener(Self::on_open_recent::<actions::OpenRecent10>))
+            .on_action(cx.listener(Self::on_open_recent::<actions::OpenRecent11>))
+            .on_action(cx.listener(Self::on_open_recent::<actions::OpenRecent12>))
+            .on_action(cx.listener(Self::on_open_recent::<actions::OpenRecent13>))
+            .on_action(cx.listener(Self::on_open_recent::<actions::OpenRecent14>))
+            .on_action(cx.listener(Self::on_open_recent::<actions::OpenRecent15>))
+            .on_action(cx.listener(Self::on_open_recent::<actions::OpenRecent16>))
+            .on_action(cx.listener(Self::on_open_recent::<actions::OpenRecent17>))
+            .on_action(cx.listener(Self::on_open_recent::<actions::OpenRecent18>))
+            .on_action(cx.listener(Self::on_open_recent::<actions::OpenRecent19>))
+            .on_action(cx.listener(Self::on_open_recent::<actions::OpenRecent20>))
     }
 }
 
@@ -650,13 +949,41 @@ mod tests {
             FileError,
             io::{canonicalize_path, disk_version, write_markdown},
         },
-        state::{DiskState, FileTreeNode},
+        state::{DiskState, FileTreeNode, TabId},
     };
 
     use super::{
-        CloseAction, LifecycleError, OpenTabPaths, SaveTabState, apply_workspace_state,
-        close_action, markdown_destination, save_as_transition, save_tab_transition,
+        CloseAction, LifecycleError, OpenTabPaths, SaveTabState, TabDirection, adjacent_tab_id,
+        apply_workspace_state, close_action, markdown_destination, save_as_transition,
+        save_tab_transition,
     };
+
+    #[test]
+    fn tab_navigation_wraps_and_uses_the_directional_edge_without_an_active_tab() {
+        let tabs = [TabId(10), TabId(20), TabId(30)];
+
+        assert_eq!(
+            adjacent_tab_id(&tabs, Some(TabId(10)), TabDirection::Next),
+            Some(TabId(20))
+        );
+        assert_eq!(
+            adjacent_tab_id(&tabs, Some(TabId(30)), TabDirection::Next),
+            Some(TabId(10))
+        );
+        assert_eq!(
+            adjacent_tab_id(&tabs, Some(TabId(10)), TabDirection::Previous),
+            Some(TabId(30))
+        );
+        assert_eq!(
+            adjacent_tab_id(&tabs, None, TabDirection::Next),
+            Some(TabId(10))
+        );
+        assert_eq!(
+            adjacent_tab_id(&tabs, None, TabDirection::Previous),
+            Some(TabId(30))
+        );
+        assert_eq!(adjacent_tab_id(&[], None, TabDirection::Next), None);
+    }
 
     #[test]
     fn canonical_paths_prevent_duplicate_tabs() {

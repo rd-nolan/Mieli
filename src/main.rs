@@ -1,5 +1,5 @@
 use gpui::AppContext as _;
-use mieli::app;
+use mieli::{actions, app};
 
 fn main() {
     gpui_platform::application().run(|cx: &mut gpui::App| {
@@ -8,6 +8,7 @@ fn main() {
         }
         bezel::theme::appearance::init(bezel::theme::appearance::AppearanceMode::System, cx);
         editor::init(cx);
+        actions::install(cx);
         let bounds =
             gpui::Bounds::centered(None, gpui::size(gpui::px(1100.0), gpui::px(760.0)), cx);
         cx.open_window(
