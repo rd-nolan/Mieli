@@ -35,7 +35,7 @@ Create or modify these files:
 - `src/lib.rs`: library module exports so pure logic can be tested with `cargo test`.
 - `src/actions.rs`: application actions and platform key bindings.
 - `src/state.rs`: `TabId`, `DiskState`, `DiskVersion`, `FileTreeNode`, `EditorTab`, modal state, and user notifications.
-- `src/app.rs`: `Mieli` root entity, action transitions, tab lifecycle, autosave scheduling, watcher polling, and close protection.
+- `src/app.rs`: Task 1's minimal renderable shell, then `Mieli` root entity, action transitions, tab lifecycle, autosave scheduling, watcher polling, and close protection.
 - `src/file/mod.rs`: file-service exports and shared file errors.
 - `src/file/io.rs`: UTF-8 reads, writes, canonical paths, and disk versions.
 - `src/file/scanner.rs`: recursive Markdown-only tree scan.
@@ -60,6 +60,7 @@ greeting.
 
 - Modify: `Cargo.toml`
 - Create: `src/lib.rs`
+- Create: `src/app.rs`
 - Modify: `src/main.rs`
 - Test: `cargo check`
 
@@ -90,19 +91,29 @@ Retain only these dependencies after compilation proves they are needed. Do not 
 
 - [ ] **Step 2: Create library module declarations.**
 
-Declare the planned modules without adding behavior yet:
+Declare only the bootstrap module that exists in this task; later tasks add their module declarations after creating their files:
 
 ```rust
-pub mod actions;
 pub mod app;
-pub mod autosave;
-pub mod config;
-pub mod file;
-pub mod state;
-pub mod ui;
 ```
 
-Keep modules private only when their public API is not used by tests or neighboring modules.
+Create a minimal renderable shell so `main.rs` can compile before the feature modules exist:
+
+```rust
+pub struct Mieli;
+
+impl Mieli {
+    pub fn new(_: &mut gpui::Context<Self>) -> Self { Self }
+}
+
+impl gpui::Render for Mieli {
+    fn render(&mut self, _: &mut gpui::Window, _: &mut gpui::Context<Self>) -> impl gpui::IntoElement {
+        gpui::div()
+    }
+}
+```
+
+Task 5 replaces this shell with the complete root entity and adds the remaining library module declarations.
 
 - [ ] **Step 3: Replace the greeting with the verified Bezel bootstrap.**
 
@@ -260,6 +271,7 @@ git commit -m "feat: add Markdown file service and tree scanner"
 
 - Produces `RecentFiles::load`, `record_success`, `remove`, `paths`, and `save` for the root entity.
 - Produces platform-independent ordering logic and accepts an injected configuration directory for tests.
+- `RecentFiles::in_memory(capacity)` is a test-only constructor whose supplied paths are treated as already canonical; production `record_success` canonicalizes existing filesystem paths before storing them.
 
 - [ ] **Step 1: Write ordering, capacity, and missing-entry tests.**
 
@@ -304,7 +316,7 @@ pub struct RecentFiles {
 }
 ```
 
-`load` receives `directories::ProjectDirs::from("com", "Mieli", "Mieli")`, creates the returned config directory only when saving, and treats malformed or unreadable config as an empty list plus a notification-ready error. `record_success` canonicalizes existing paths, removes duplicates, inserts at index zero, truncates to 20, and persists. `remove` persists after deletion. `open_recent` will check `path.exists()` before opening and remove missing entries.
+`load` receives `directories::ProjectDirs::from("com", "Mieli", "Mieli")`, creates the returned config directory only when saving, and treats malformed or unreadable config as an empty list plus a notification-ready error. `record_success` canonicalizes existing paths, removes duplicates, inserts at index zero, truncates to 20, and persists. `in_memory` intentionally skips filesystem canonicalization so ordering tests can use logical paths. `remove` persists after deletion. `open_recent` will check `path.exists()` before opening and remove missing entries.
 
 - [ ] **Step 4: Run tests and commit the persistence layer.**
 
@@ -428,6 +440,32 @@ git commit -m "feat: add watcher and autosave primitives"
 Keep file opening and tab identity testable without GPUI by testing the canonical-path index helper separately from entity construction:
 
 ```rust
+#[derive(Default)]
+struct OpenTabPaths { paths: Vec<PathBuf>, next_id: TabId }
+
+impl OpenTabPaths {
+    fn insert(&mut self, path: PathBuf) -> TabId {
+        if let Some((index, _)) = self.paths.iter().enumerate().find(|(_, existing)| **existing == path) {
+            return TabId(index as u64 + 1);
+        }
+        self.paths.push(path);
+        self.next_id = TabId(self.paths.len() as u64);
+        self.next_id
+    }
+
+    fn len(&self) -> usize { self.paths.len() }
+}
+
+#[derive(Clone)]
+struct DirtyTestState { saved: String, current: String, dirty: bool }
+
+impl DirtyTestState {
+    fn clean(source: &str) -> Self { Self { saved: source.into(), current: source.into(), dirty: false } }
+    fn mark_edited(&mut self, source: &str) { self.current = source.into(); self.dirty = self.current != self.saved; }
+    fn save_failed(&mut self) { self.dirty = self.current != self.saved; }
+    fn save_succeeded(&mut self) { self.saved = self.current.clone(); self.dirty = false; }
+}
+
 #[test]
 fn canonical_paths_prevent_duplicate_tabs() {
     let mut paths = OpenTabPaths::default();
@@ -439,7 +477,7 @@ fn canonical_paths_prevent_duplicate_tabs() {
 
 #[test]
 fn failed_save_keeps_dirty_and_success_clears_it() {
-    let mut tab = TestTab::clean("README.md", "# A");
+    let mut tab = DirtyTestState::clean("# A");
     tab.mark_edited("# B");
     assert!(tab.dirty);
     tab.save_failed();
@@ -656,9 +694,26 @@ git commit -m "feat: add native Mieli workspace UI"
 - [ ] **Step 1: Write failing external-change and close tests.**
 
 ```rust
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ConflictTestState { source: String, saved: String, dirty: bool, disk_state: DiskState }
+
+impl ConflictTestState {
+    fn clean(source: &str) -> Self { Self { source: source.into(), saved: source.into(), dirty: false, disk_state: DiskState::Synced } }
+    fn apply_external_change(&mut self, disk_source: &str) -> ExternalResolution {
+        if self.dirty { self.disk_state = DiskState::Conflict; ExternalResolution::Conflict }
+        else { self.source = disk_source.into(); self.saved = self.source.clone(); self.disk_state = DiskState::Synced; ExternalResolution::Reloaded }
+    }
+    fn mark_dirty(&mut self, source: &str) { self.source = source.into(); self.dirty = true; }
+    fn apply_removed_event(&mut self) { self.disk_state = DiskState::Deleted; self.dirty = true; }
+    fn keep_deleted_open(&mut self) { self.dirty = true; self.disk_state = DiskState::Deleted; }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ExternalResolution { Reloaded, Conflict }
+
 #[test]
 fn clean_external_change_reloads_and_dirty_external_change_conflicts() {
-    let mut state = clean_tab_state("# A");
+    let mut state = ConflictTestState::clean("# A");
     assert_eq!(state.apply_external_change("# B"), ExternalResolution::Reloaded);
     state.mark_dirty("# Local");
     assert_eq!(state.apply_external_change("# Disk"), ExternalResolution::Conflict);
@@ -666,7 +721,7 @@ fn clean_external_change_reloads_and_dirty_external_change_conflicts() {
 
 #[test]
 fn deleted_file_marks_dirty_and_keep_open_preserves_content() {
-    let mut state = clean_tab_state("# A");
+    let mut state = ConflictTestState::clean("# A");
     state.apply_removed_event();
     assert_eq!(state.disk_state, DiskState::Deleted);
     assert!(state.dirty);
@@ -698,11 +753,12 @@ self.autosave_tasks.insert(tab_id, task);
 
 - [ ] **Step 4: Poll and handle watcher events without mutating from callbacks.**
 
-Start a repeating GPUI task that waits 250ms, drains watcher events, handles them on `Mieli`, and schedules the next poll while the entity is alive. For each changed path, compute a fresh `DiskVersion` and ignore an event matching the tab's last saved version. For a different version:
+Start a repeating GPUI task that waits 250ms, drains watcher events, handles them on `Mieli`, and schedules the next poll while the entity is alive. For each changed path, compute a fresh `DiskVersion` and ignore an event matching the tab's last saved version. For a different version, read the new UTF-8 source before the clean reload branch:
 
 ```rust
+let source = read_markdown(&path).map_err(|error| self.notify_file_error(error));
 match (tab.dirty, version.exists) {
-    (false, true) => self.reload_clean_tab(tab_id, source, version, cx),
+    (false, true) => self.reload_clean_tab(tab_id, source?, version, cx),
     (true, true) => self.enter_conflict(tab_id, cx),
     (_, false) => self.enter_deleted(tab_id, cx),
 }
