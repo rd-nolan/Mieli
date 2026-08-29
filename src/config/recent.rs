@@ -46,7 +46,7 @@ impl RecentFiles {
             );
         };
 
-        load_or_empty_from_path(config_path, DEFAULT_CAPACITY)
+        Self::load_from_path_with_notification(config_path, DEFAULT_CAPACITY)
     }
 
     pub fn load_from_path(config_path: PathBuf, capacity: usize) -> Result<Self, RecentFilesError> {
@@ -57,6 +57,19 @@ impl RecentFiles {
             capacity,
             true,
         ))
+    }
+
+    pub fn load_from_path_with_notification(
+        config_path: PathBuf,
+        capacity: usize,
+    ) -> (Self, Option<RecentFilesError>) {
+        match Self::load_from_path(config_path.clone(), capacity) {
+            Ok(recent) => (recent, None),
+            Err(error) => (
+                Self::new(Vec::new(), Some(config_path), capacity, true),
+                Some(error),
+            ),
+        }
     }
 
     #[cfg(test)]
@@ -156,12 +169,28 @@ impl RecentFiles {
     }
 
     fn prepare_comparison_path(&self, path: &Path) -> Result<PathBuf, RecentFilesError> {
-        if self.canonicalize_on_record {
-            canonicalize_path(path).map_err(|_| RecentFilesError::Canonicalize {
+        if !self.canonicalize_on_record {
+            return Ok(path.to_path_buf());
+        }
+
+        match fs::canonicalize(path) {
+            Ok(canonical) => Ok(canonical),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let file_name = path
+                    .file_name()
+                    .ok_or_else(|| RecentFilesError::Canonicalize {
+                        path: path.to_path_buf(),
+                    })?;
+                let parent = path.parent().unwrap_or_else(|| Path::new("."));
+                let canonical_parent =
+                    fs::canonicalize(parent).map_err(|_| RecentFilesError::Canonicalize {
+                        path: path.to_path_buf(),
+                    })?;
+                Ok(canonical_parent.join(file_name))
+            }
+            Err(_) => Err(RecentFilesError::Canonicalize {
                 path: path.to_path_buf(),
-            })
-        } else {
-            Ok(path.to_path_buf())
+            }),
         }
     }
 
@@ -223,19 +252,6 @@ fn read_config(config_path: &Path) -> Result<RecentConfig, RecentFilesError> {
         Err(_) => Err(RecentFilesError::Read {
             path: config_path.to_path_buf(),
         }),
-    }
-}
-
-fn load_or_empty_from_path(
-    config_path: PathBuf,
-    capacity: usize,
-) -> (RecentFiles, Option<RecentFilesError>) {
-    match RecentFiles::load_from_path(config_path.clone(), capacity) {
-        Ok(recent) => (recent, None),
-        Err(error) => (
-            RecentFiles::new(Vec::new(), Some(config_path), capacity, true),
-            Some(error),
-        ),
     }
 }
 
@@ -308,12 +324,30 @@ mod tests {
     }
 
     #[test]
-    fn malformed_config_returns_empty_recent_files_and_an_error() {
+    fn remove_drops_deleted_production_path() {
+        let temp = TempDir::new();
+        let config_path = temp.path().join("recent.json");
+        let markdown_path = temp.write_markdown("stale.md");
+        let stored_path = markdown_path.canonicalize().unwrap();
+        let mut recent = RecentFiles::load_from_path(config_path.clone(), 20).unwrap();
+
+        recent.record_success(&markdown_path).unwrap();
+        fs::remove_file(&markdown_path).unwrap();
+
+        recent.remove(&stored_path).unwrap();
+
+        assert!(!recent.paths().contains(&stored_path));
+        let loaded = RecentFiles::load_from_path(config_path, 20).unwrap();
+        assert!(loaded.paths().is_empty());
+    }
+
+    #[test]
+    fn malformed_config_returns_empty_recent_files_and_an_error_through_injected_loader() {
         let temp = TempDir::new();
         let config_path = temp.path().join("recent.json");
         fs::write(&config_path, "{not valid json").unwrap();
 
-        let (recent, error) = super::load_or_empty_from_path(config_path, 20);
+        let (recent, error) = RecentFiles::load_from_path_with_notification(config_path, 20);
 
         assert!(recent.paths().is_empty());
         assert!(error.is_some());
