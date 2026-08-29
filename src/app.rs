@@ -16,7 +16,9 @@ use crate::{
         scanner::scan_markdown_tree,
         watcher::{FileWatcherService, WatchError},
     },
-    state::{AppState, DiskState, EditorTab, FileTreeNode, Modal, Notification, TabId},
+    state::{
+        AppState, DiskState, DiskVersion, EditorTab, FileTreeNode, Modal, Notification, TabId,
+    },
 };
 
 #[derive(Default)]
@@ -87,6 +89,84 @@ fn apply_save_as_identity(path: &mut PathBuf, title: &mut String, destination: P
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| destination.display().to_string());
     *path = destination;
+}
+
+struct SaveTabState<'a> {
+    path: &'a mut PathBuf,
+    title: &'a mut String,
+    saved_source: &'a mut String,
+    disk_version: &'a mut DiskVersion,
+    dirty: &'a mut bool,
+    disk_state: &'a mut DiskState,
+}
+
+impl<'a> SaveTabState<'a> {
+    fn from_tab(tab: &'a mut EditorTab) -> Self {
+        Self {
+            path: &mut tab.path,
+            title: &mut tab.title,
+            saved_source: &mut tab.saved_source,
+            disk_version: &mut tab.disk_version,
+            dirty: &mut tab.dirty,
+            disk_state: &mut tab.disk_state,
+        }
+    }
+
+    fn commit_save(&mut self, current_source: String, version: DiskVersion) {
+        apply_successful_save(self.saved_source, self.dirty, current_source);
+        *self.disk_version = version;
+        *self.disk_state = DiskState::Synced;
+    }
+}
+
+fn save_as_candidate(destination: &Path) -> Result<PathBuf, FileError> {
+    let file_name = destination
+        .file_name()
+        .ok_or_else(|| FileError::other(destination, "canonicalize"))?;
+    let parent = destination
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let canonical_parent = canonicalize_path(parent)?;
+    Ok(canonical_parent.join(file_name))
+}
+
+fn save_tab_transition(
+    mut tab: SaveTabState<'_>,
+    current_source: String,
+    writer: impl FnOnce(&Path, &str) -> Result<DiskVersion, FileError>,
+) -> Result<(), LifecycleError> {
+    let version = writer(tab.path, &current_source)?;
+    tab.commit_save(current_source, version);
+    Ok(())
+}
+
+fn save_as_transition(
+    tab_id: TabId,
+    mut tab: SaveTabState<'_>,
+    open_tab_paths: &mut OpenTabPaths,
+    destination: PathBuf,
+    current_source: String,
+    writer: impl FnOnce(&Path, &str) -> Result<DiskVersion, FileError>,
+) -> Result<PathBuf, LifecycleError> {
+    let destination = markdown_destination(&destination);
+    let candidate = save_as_candidate(&destination)?;
+    if let Some(existing) = open_tab_paths.get(&candidate) {
+        if existing != tab_id {
+            return Err(LifecycleError::PathAlreadyOpen {
+                path: candidate,
+                tab_id: existing,
+            });
+        }
+    }
+
+    let version = writer(&candidate, &current_source)?;
+    let canonical = canonicalize_path(&candidate)?;
+    let old_path = tab.path.clone();
+    tab.commit_save(current_source, version);
+    apply_save_as_identity(tab.path, tab.title, canonical.clone());
+    open_tab_paths.replace(&old_path, canonical.clone(), tab_id);
+    Ok(canonical)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -281,15 +361,14 @@ impl Mieli {
             return self.lifecycle_failure(LifecycleError::SaveAsRequired(tab_id));
         }
         let current_source = self.state.tabs[index].editor.read(cx).source();
-        let version = match write_markdown(&path, &current_source) {
-            Ok(version) => version,
-            Err(error) => return self.lifecycle_failure(error.into()),
+        let result = save_tab_transition(
+            SaveTabState::from_tab(&mut self.state.tabs[index]),
+            current_source,
+            write_markdown,
+        );
+        if let Err(error) = result {
+            return self.lifecycle_failure(error);
         };
-
-        let tab = &mut self.state.tabs[index];
-        apply_successful_save(&mut tab.saved_source, &mut tab.dirty, current_source);
-        tab.disk_version = version;
-        tab.disk_state = DiskState::Synced;
         cx.notify();
         Ok(())
     }
@@ -303,35 +382,18 @@ impl Mieli {
         let index = self
             .tab_index(tab_id)
             .ok_or(LifecycleError::MissingTab(tab_id))?;
-        let destination = markdown_destination(&destination);
-        let candidate = self.file_result(canonicalize_path(&destination))?;
-        if let Some(existing) = self.open_tab_paths.get(&candidate) {
-            if existing != tab_id {
-                return self.lifecycle_failure(LifecycleError::PathAlreadyOpen {
-                    path: candidate,
-                    tab_id: existing,
-                });
-            }
-        }
-
         let current_source = self.state.tabs[index].editor.read(cx).source();
-        let version = match write_markdown(&destination, &current_source) {
-            Ok(version) => version,
-            Err(error) => return self.lifecycle_failure(error.into()),
-        };
-        let canonical = match canonicalize_path(&destination) {
+        let canonical = match save_as_transition(
+            tab_id,
+            SaveTabState::from_tab(&mut self.state.tabs[index]),
+            &mut self.open_tab_paths,
+            destination,
+            current_source,
+            write_markdown,
+        ) {
             Ok(path) => path,
-            Err(error) => return self.lifecycle_failure(error.into()),
+            Err(error) => return self.lifecycle_failure(error),
         };
-
-        let old_path = self.state.tabs[index].path.clone();
-        let tab = &mut self.state.tabs[index];
-        apply_successful_save(&mut tab.saved_source, &mut tab.dirty, current_source);
-        apply_save_as_identity(&mut tab.path, &mut tab.title, canonical.clone());
-        tab.disk_version = version;
-        tab.disk_state = DiskState::Synced;
-        self.open_tab_paths
-            .replace(&old_path, canonical.clone(), tab_id);
 
         if let Err(error) = self.state.recent_files.record_success(&canonical) {
             self.notification = Some(Notification::error(error));
@@ -571,11 +633,17 @@ mod tests {
         time::{SystemTime, UNIX_EPOCH},
     };
 
-    use crate::{file::io::canonicalize_path, state::FileTreeNode};
+    use crate::{
+        file::{
+            FileError,
+            io::{canonicalize_path, disk_version, write_markdown},
+        },
+        state::{DiskState, FileTreeNode},
+    };
 
     use super::{
-        CloseAction, OpenTabPaths, apply_save_as_identity, apply_successful_save,
-        apply_workspace_state, close_action, dirty_for_source, markdown_destination,
+        CloseAction, LifecycleError, OpenTabPaths, SaveTabState, apply_workspace_state,
+        close_action, markdown_destination, save_as_transition, save_tab_transition,
     };
 
     #[test]
@@ -594,21 +662,62 @@ mod tests {
     }
 
     #[test]
-    fn failed_save_keeps_dirty_and_success_clears_it() {
-        let mut saved = String::from("# A");
-        let current = String::from("# B");
-        let mut dirty = dirty_for_source(&saved, &current);
+    fn save_tab_preserves_complete_state_on_error_and_commits_after_success() {
+        let directory = TestDirectory::new();
+        let path = directory.path().join("original.md");
+        fs::write(&path, "# A").unwrap();
+        let mut path = canonicalize_path(&path).unwrap();
+        let original_path = path.clone();
+        let mut title = String::from("original.md");
+        let mut saved_source = String::from("# A");
+        let mut version = disk_version(&path).unwrap();
+        let original_version = version.clone();
+        let mut dirty = true;
+        let mut disk_state = DiskState::Conflict;
 
+        let failed = save_tab_transition(
+            SaveTabState {
+                path: &mut path,
+                title: &mut title,
+                saved_source: &mut saved_source,
+                disk_version: &mut version,
+                dirty: &mut dirty,
+                disk_state: &mut disk_state,
+            },
+            String::from("# B"),
+            |path, _| Err(FileError::other(path, "write")),
+        );
+
+        assert!(matches!(failed, Err(LifecycleError::File(_))));
+        assert_eq!(fs::read_to_string(&original_path).unwrap(), "# A");
+        assert_eq!(path, original_path);
+        assert_eq!(title, "original.md");
+        assert_eq!(saved_source, "# A");
+        assert_eq!(version, original_version);
         assert!(dirty);
+        assert_eq!(disk_state, DiskState::Conflict);
 
-        // A failed write never reaches the successful-save transition.
-        assert!(dirty);
-        assert_eq!(saved, "# A");
+        save_tab_transition(
+            SaveTabState {
+                path: &mut path,
+                title: &mut title,
+                saved_source: &mut saved_source,
+                disk_version: &mut version,
+                dirty: &mut dirty,
+                disk_state: &mut disk_state,
+            },
+            String::from("# B"),
+            write_markdown,
+        )
+        .unwrap();
 
-        apply_successful_save(&mut saved, &mut dirty, current);
-
+        assert_eq!(fs::read_to_string(&original_path).unwrap(), "# B");
+        assert_eq!(path, original_path);
+        assert_eq!(title, "original.md");
+        assert_eq!(saved_source, "# B");
+        assert_eq!(version, disk_version(&original_path).unwrap());
         assert!(!dirty);
-        assert_eq!(saved, "# B");
+        assert_eq!(disk_state, DiskState::Synced);
     }
 
     #[test]
@@ -628,18 +737,104 @@ mod tests {
     }
 
     #[test]
-    fn save_as_identity_changes_only_after_success() {
-        let mut path = PathBuf::from("original.md");
+    fn save_as_creates_new_destination_before_committing_complete_identity() {
+        let directory = TestDirectory::new();
+        let original = directory.path().join("original.md");
+        fs::write(&original, "# A").unwrap();
+        let mut path = canonicalize_path(&original).unwrap();
+        let old_path = path.clone();
         let mut title = String::from("original.md");
+        let mut saved_source = String::from("# A");
+        let mut version = disk_version(&path).unwrap();
+        let mut dirty = true;
+        let mut disk_state = DiskState::Conflict;
+        let mut paths = OpenTabPaths::default();
+        let tab_id = paths.insert(path.clone());
+        let destination = directory.path().join("renamed");
+        let expected = canonicalize_path(directory.path())
+            .unwrap()
+            .join("renamed.md");
 
-        // A failed write does not run the commit transition.
-        assert_eq!(path, PathBuf::from("original.md"));
+        let canonical = save_as_transition(
+            tab_id,
+            SaveTabState {
+                path: &mut path,
+                title: &mut title,
+                saved_source: &mut saved_source,
+                disk_version: &mut version,
+                dirty: &mut dirty,
+                disk_state: &mut disk_state,
+            },
+            &mut paths,
+            destination,
+            String::from("# B"),
+            write_markdown,
+        )
+        .unwrap();
+
+        assert_eq!(canonical, expected);
+        assert_eq!(fs::read_to_string(&canonical).unwrap(), "# B");
+        assert_eq!(path, canonical);
+        assert_eq!(title, "renamed.md");
+        assert_eq!(saved_source, "# B");
+        assert_eq!(version, disk_version(&canonical).unwrap());
+        assert!(!dirty);
+        assert_eq!(disk_state, DiskState::Synced);
+        assert_eq!(paths.get(&old_path), None);
+        assert_eq!(paths.get(&canonical), Some(tab_id));
+    }
+
+    #[test]
+    fn failed_save_as_write_preserves_complete_old_identity_and_path_index() {
+        let directory = TestDirectory::new();
+        let original = directory.path().join("original.md");
+        fs::write(&original, "# A").unwrap();
+        let mut path = canonicalize_path(&original).unwrap();
+        let old_path = path.clone();
+        let mut title = String::from("original.md");
+        let mut saved_source = String::from("# A");
+        let mut version = disk_version(&path).unwrap();
+        let old_version = version.clone();
+        let mut dirty = true;
+        let mut disk_state = DiskState::Conflict;
+        let mut paths = OpenTabPaths::default();
+        let tab_id = paths.insert(path.clone());
+        let destination = directory.path().join("blocked");
+        let expected_candidate = canonicalize_path(directory.path())
+            .unwrap()
+            .join("blocked.md");
+        let mut attempted_path = None;
+
+        let failed = save_as_transition(
+            tab_id,
+            SaveTabState {
+                path: &mut path,
+                title: &mut title,
+                saved_source: &mut saved_source,
+                disk_version: &mut version,
+                dirty: &mut dirty,
+                disk_state: &mut disk_state,
+            },
+            &mut paths,
+            destination,
+            String::from("# B"),
+            |candidate, _| {
+                attempted_path = Some(candidate.to_path_buf());
+                Err(FileError::other(candidate, "write"))
+            },
+        );
+
+        assert!(matches!(failed, Err(LifecycleError::File(_))));
+        assert_eq!(attempted_path, Some(expected_candidate.clone()));
+        assert!(!expected_candidate.exists());
+        assert_eq!(path, old_path);
         assert_eq!(title, "original.md");
-
-        apply_save_as_identity(&mut path, &mut title, PathBuf::from("renamed.markdown"));
-
-        assert_eq!(path, PathBuf::from("renamed.markdown"));
-        assert_eq!(title, "renamed.markdown");
+        assert_eq!(saved_source, "# A");
+        assert_eq!(version, old_version);
+        assert!(dirty);
+        assert_eq!(disk_state, DiskState::Conflict);
+        assert_eq!(paths.get(&old_path), Some(tab_id));
+        assert_eq!(paths.get(&expected_candidate), None);
     }
 
     #[test]
