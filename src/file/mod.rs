@@ -2,6 +2,7 @@ use std::{fmt, io as std_io, path::PathBuf};
 
 pub mod io;
 pub mod scanner;
+pub mod watcher;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum FileError {

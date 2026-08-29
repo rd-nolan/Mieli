@@ -1,5 +1,8 @@
 use std::{path::PathBuf, time::SystemTime};
 
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct TabId(pub u64);
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DiskState {
     Synced,
