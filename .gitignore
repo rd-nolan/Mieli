@@ -1,0 +1,5 @@
+/target
+/.worktrees
+
+# MacOS
+.DS_Store
