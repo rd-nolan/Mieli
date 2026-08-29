@@ -23,9 +23,12 @@ pub fn write_markdown(path: &Path, source: &str) -> Result<DiskVersion, FileErro
 }
 
 pub fn canonicalize_path(path: &Path) -> Result<PathBuf, FileError> {
-    if path.exists() {
-        return fs::canonicalize(path)
-            .map_err(|error| FileError::from_io(path, "canonicalize", error));
+    match fs::canonicalize(path) {
+        Ok(canonical) => return Ok(canonical),
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+            return Err(FileError::from_io(path, "canonicalize", error));
+        }
+        Err(_) => {}
     }
 
     let file_name = path
@@ -136,6 +139,32 @@ mod tests {
         assert_eq!(
             canonical,
             fs::canonicalize(&existing_parent).unwrap().join("draft.md")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn canonicalize_path_returns_permission_denied_for_inaccessible_existing_paths() {
+        use std::os::unix::{fs::PermissionsExt, fs::symlink};
+
+        let temp = TempDir::new();
+        let hidden_dir = temp.path().join("hidden");
+        fs::create_dir_all(&hidden_dir).unwrap();
+        let hidden_file = hidden_dir.join("secret.md");
+        fs::write(&hidden_file, "secret").unwrap();
+
+        let original_permissions = fs::metadata(&hidden_dir).unwrap().permissions();
+        let symlink_path = temp.path().join("secret-link.md");
+        symlink(&hidden_file, &symlink_path).unwrap();
+
+        fs::set_permissions(&hidden_dir, PermissionsExt::from_mode(0o000)).unwrap();
+
+        let result = canonicalize_path(&symlink_path);
+
+        fs::set_permissions(&hidden_dir, original_permissions).unwrap();
+
+        assert!(
+            matches!(result, Err(crate::file::FileError::PermissionDenied { path, operation }) if path == symlink_path && operation == "canonicalize")
         );
     }
 
