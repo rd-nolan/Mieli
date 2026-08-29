@@ -120,6 +120,14 @@ impl<'a> SaveTabState<'a> {
 }
 
 fn save_as_candidate(destination: &Path) -> Result<PathBuf, FileError> {
+    match std::fs::canonicalize(destination) {
+        Ok(canonical) => return Ok(canonical),
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+            return Err(FileError::from_io(destination, "canonicalize", error));
+        }
+        Err(_) => {}
+    }
+
     let file_name = destination
         .file_name()
         .ok_or_else(|| FileError::other(destination, "canonicalize"))?;
@@ -127,7 +135,8 @@ fn save_as_candidate(destination: &Path) -> Result<PathBuf, FileError> {
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
-    let canonical_parent = canonicalize_path(parent)?;
+    let canonical_parent = std::fs::canonicalize(parent)
+        .map_err(|error| FileError::from_io(destination, "canonicalize", error))?;
     Ok(canonical_parent.join(file_name))
 }
 
@@ -835,6 +844,68 @@ mod tests {
         assert_eq!(disk_state, DiskState::Conflict);
         assert_eq!(paths.get(&old_path), Some(tab_id));
         assert_eq!(paths.get(&expected_candidate), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn save_as_rejects_existing_symlink_to_open_file_before_write() {
+        let directory = TestDirectory::new();
+        let original = directory.path().join("original.md");
+        let target = directory.path().join("open.md");
+        let destination = directory.path().join("alias.md");
+        fs::write(&original, "# A").unwrap();
+        fs::write(&target, "# Protected").unwrap();
+        std::os::unix::fs::symlink(&target, &destination).unwrap();
+
+        let mut path = canonicalize_path(&original).unwrap();
+        let old_path = path.clone();
+        let canonical_target = canonicalize_path(&target).unwrap();
+        let mut title = String::from("original.md");
+        let mut saved_source = String::from("# A");
+        let mut version = disk_version(&path).unwrap();
+        let old_version = version.clone();
+        let mut dirty = true;
+        let mut disk_state = DiskState::Conflict;
+        let mut paths = OpenTabPaths::default();
+        let tab_id = paths.insert(path.clone());
+        let target_tab_id = paths.insert(canonical_target.clone());
+
+        let result = save_as_transition(
+            tab_id,
+            SaveTabState {
+                path: &mut path,
+                title: &mut title,
+                saved_source: &mut saved_source,
+                disk_version: &mut version,
+                dirty: &mut dirty,
+                disk_state: &mut disk_state,
+            },
+            &mut paths,
+            destination,
+            String::from("# B"),
+            write_markdown,
+        );
+
+        assert!(matches!(
+            result,
+            Err(LifecycleError::PathAlreadyOpen {
+                path: duplicate,
+                tab_id: duplicate_tab_id,
+            }) if duplicate == canonical_target && duplicate_tab_id == target_tab_id
+        ));
+        assert_eq!(fs::read_to_string(&old_path).unwrap(), "# A");
+        assert_eq!(
+            fs::read_to_string(&canonical_target).unwrap(),
+            "# Protected"
+        );
+        assert_eq!(path, old_path);
+        assert_eq!(title, "original.md");
+        assert_eq!(saved_source, "# A");
+        assert_eq!(version, old_version);
+        assert!(dirty);
+        assert_eq!(disk_state, DiskState::Conflict);
+        assert_eq!(paths.get(&old_path), Some(tab_id));
+        assert_eq!(paths.get(&canonical_target), Some(target_tab_id));
     }
 
     #[test]
