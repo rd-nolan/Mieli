@@ -1,4 +1,4 @@
-use std::{fs, path::Path};
+use std::{cmp::Ordering, fs, path::Path};
 
 use crate::{
     file::{FileError, io::is_markdown_file},
@@ -37,16 +37,22 @@ pub fn scan_markdown_tree(root: &Path) -> Result<Vec<FileTreeNode>, FileError> {
         }
     }
 
-    nodes.sort_by(|left, right| {
-        let left_rank = if left.is_dir { 0 } else { 1 };
-        let right_rank = if right.is_dir { 0 } else { 1 };
-        left_rank
-            .cmp(&right_rank)
-            .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
-            .then_with(|| left.path.cmp(&right.path))
-    });
+    sort_file_tree_nodes(&mut nodes);
 
     Ok(nodes)
+}
+
+fn sort_file_tree_nodes(nodes: &mut [FileTreeNode]) {
+    nodes.sort_by(compare_file_tree_nodes);
+}
+
+fn compare_file_tree_nodes(left: &FileTreeNode, right: &FileTreeNode) -> Ordering {
+    let left_rank = if left.is_dir { 0 } else { 1 };
+    let right_rank = if right.is_dir { 0 } else { 1 };
+    left_rank
+        .cmp(&right_rank)
+        .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
+        .then_with(|| left.path.cmp(&right.path))
 }
 
 #[cfg(test)]
@@ -60,7 +66,7 @@ mod tests {
 
     use crate::state::FileTreeNode;
 
-    use super::scan_markdown_tree;
+    use super::{scan_markdown_tree, sort_file_tree_nodes};
 
     #[test]
     fn scanner_keeps_only_directories_with_markdown_descendants() {
@@ -93,38 +99,30 @@ mod tests {
 
     #[test]
     fn scanner_uses_full_path_to_break_equal_lowercase_name_collisions() {
-        let capability_probe = TempDir::new();
-        if !supports_case_distinct_siblings(capability_probe.path()) {
-            return;
-        }
+        let mut nodes = vec![
+            test_node("/tmp/alpha", "alpha/", true),
+            test_node("/tmp/ALPHA", "ALPHA/", true),
+            test_node("/tmp/beta.MD", "beta.MD", false),
+            test_node("/tmp/Beta.md", "Beta.md", false),
+        ];
 
-        let temp = TempDir::root_with(&["ALPHA/first.md", "alpha/second.md", "Beta.md", "beta.MD"]);
-
-        let tree = scan_markdown_tree(temp.path()).unwrap();
+        sort_file_tree_nodes(&mut nodes);
 
         assert_eq!(
-            tree_names(&tree),
+            tree_names(&nodes),
             vec!["ALPHA/", "alpha/", "Beta.md", "beta.MD"]
         );
-
-        let alpha_dir_paths = tree
-            .iter()
-            .filter(|node| node.is_dir && node.name.eq_ignore_ascii_case("alpha/"))
-            .map(|node| node.path.clone())
-            .collect::<Vec<_>>();
         assert_eq!(
-            alpha_dir_paths,
-            vec![temp.path().join("ALPHA"), temp.path().join("alpha")]
-        );
-
-        let beta_file_paths = tree
-            .iter()
-            .filter(|node| !node.is_dir && node.name.eq_ignore_ascii_case("beta.md"))
-            .map(|node| node.path.clone())
-            .collect::<Vec<_>>();
-        assert_eq!(
-            beta_file_paths,
-            vec![temp.path().join("Beta.md"), temp.path().join("beta.MD")]
+            nodes
+                .iter()
+                .map(|node| node.path.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                PathBuf::from("/tmp/ALPHA"),
+                PathBuf::from("/tmp/alpha"),
+                PathBuf::from("/tmp/Beta.md"),
+                PathBuf::from("/tmp/beta.MD"),
+            ]
         );
     }
 
@@ -132,18 +130,13 @@ mod tests {
         nodes.iter().map(|node| node.name.clone()).collect()
     }
 
-    fn supports_case_distinct_siblings(root: &Path) -> bool {
-        let lower = root.join("alpha");
-        let upper = root.join("ALPHA");
-
-        if fs::create_dir_all(&lower).is_err() {
-            return false;
-        }
-
-        match fs::create_dir(&upper) {
-            Ok(()) => true,
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => false,
-            Err(_) => false,
+    fn test_node(path: &str, name: &str, is_dir: bool) -> FileTreeNode {
+        FileTreeNode {
+            path: PathBuf::from(path),
+            name: name.to_string(),
+            is_dir,
+            expanded: true,
+            children: Vec::new(),
         }
     }
 
