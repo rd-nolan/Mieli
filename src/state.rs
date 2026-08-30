@@ -55,6 +55,9 @@ pub struct AppState {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Modal {
     CloseTab(TabId),
+    ExternalConflict(TabId),
+    DeletedFile(TabId),
+    Shutdown,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

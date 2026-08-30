@@ -1,8 +1,9 @@
 use std::{
-    collections::HashMap,
+    collections::{BTreeSet, HashMap},
     ffi::OsString,
     fmt,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use gpui::AppContext as _;
@@ -16,7 +17,7 @@ use crate::{
         FileError,
         io::{canonicalize_path, disk_version, is_markdown_file, read_markdown, write_markdown},
         scanner::scan_markdown_tree,
-        watcher::{FileWatcherService, WatchError},
+        watcher::{FileSystemEvent, FileWatcherService, WatchError},
     },
     state::{
         AppState, DiskState, DiskVersion, EditorTab, FileTreeNode, Modal, Notification, TabId,
@@ -155,6 +156,22 @@ fn save_tab_transition(
     Ok(())
 }
 
+fn autosave_transition(
+    key: &AutosaveKey,
+    tab_id: TabId,
+    generation: u64,
+    tab: SaveTabState<'_>,
+    current_source: String,
+    writer: impl FnOnce(&Path, &str) -> Result<DiskVersion, FileError>,
+) -> Result<bool, LifecycleError> {
+    if !autosave_is_current(key, tab_id, generation, tab.path, *tab.dirty) {
+        return Ok(false);
+    }
+
+    save_tab_transition(tab, current_source, writer)?;
+    Ok(true)
+}
+
 fn save_as_transition(
     tab_id: TabId,
     mut tab: SaveTabState<'_>,
@@ -187,6 +204,77 @@ fn save_as_transition(
 enum CloseAction {
     Remove,
     RequestDecision,
+}
+
+struct ExternalChangeState<'a> {
+    saved_source: &'a mut String,
+    disk_version: &'a mut DiskVersion,
+    dirty: &'a mut bool,
+    disk_state: &'a mut DiskState,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum ExternalResolution {
+    Reloaded(String),
+    Conflict,
+}
+
+fn apply_external_change(
+    state: ExternalChangeState<'_>,
+    disk_source: String,
+    version: DiskVersion,
+) -> ExternalResolution {
+    if *state.dirty {
+        *state.disk_state = DiskState::Conflict;
+        return ExternalResolution::Conflict;
+    }
+
+    *state.saved_source = disk_source.clone();
+    *state.disk_version = version;
+    *state.dirty = false;
+    *state.disk_state = DiskState::Synced;
+    ExternalResolution::Reloaded(disk_source)
+}
+
+fn load_external_change(
+    state: ExternalChangeState<'_>,
+    path: &Path,
+    version: DiskVersion,
+    reader: impl FnOnce(&Path) -> Result<String, FileError>,
+) -> Result<ExternalResolution, FileError> {
+    let disk_source = reader(path)?;
+    Ok(apply_external_change(state, disk_source, version))
+}
+
+fn apply_removed_event(dirty: &mut bool, disk_state: &mut DiskState) {
+    *dirty = true;
+    *disk_state = DiskState::Deleted;
+}
+
+fn keep_deleted_open(dirty: &mut bool, disk_state: &mut DiskState) {
+    *dirty = true;
+    *disk_state = DiskState::Deleted;
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum WindowCloseAction {
+    Allow,
+    SaveAll,
+    RequestDecision,
+}
+
+fn window_close_action(
+    allow_quit: bool,
+    has_dirty_tabs: bool,
+    autosave_enabled: bool,
+) -> WindowCloseAction {
+    if allow_quit || !has_dirty_tabs {
+        WindowCloseAction::Allow
+    } else if autosave_enabled {
+        WindowCloseAction::SaveAll
+    } else {
+        WindowCloseAction::RequestDecision
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -303,9 +391,11 @@ pub struct Mieli {
     pub modal: Option<Modal>,
     pub notification: Option<Notification>,
     watcher: Option<FileWatcherService>,
+    _watcher_poll_task: gpui::Task<()>,
     autosave_tasks: HashMap<TabId, gpui::Task<()>>,
     editor_scrolls: HashMap<TabId, gpui::ScrollHandle>,
     open_tab_paths: OpenTabPaths,
+    allow_quit: bool,
 }
 
 impl Mieli {
@@ -319,6 +409,16 @@ impl Mieli {
             .map(Notification::error)
             .or_else(|| recent_error.map(Notification::error));
 
+        let watcher_poll_task = cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(250))
+                    .await;
+                if this.update(cx, |view, cx| view.poll_watcher(cx)).is_err() {
+                    break;
+                }
+            }
+        });
         let this = Self {
             state: AppState {
                 workspace_root: None,
@@ -332,9 +432,11 @@ impl Mieli {
             modal: None,
             notification,
             watcher,
+            _watcher_poll_task: watcher_poll_task,
             autosave_tasks: HashMap::new(),
             editor_scrolls: HashMap::new(),
             open_tab_paths: OpenTabPaths::default(),
+            allow_quit: false,
         };
         actions::set_file_menu(cx, this.state.recent_files.paths());
         this
@@ -416,6 +518,7 @@ impl Mieli {
         let tab = &mut self.state.tabs[index];
         tab.dirty = dirty_for_source(&tab.saved_source, &current_source);
         tab.autosave_generation = tab.autosave_generation.saturating_add(1);
+        self.schedule_autosave(tab_id, cx);
         cx.notify();
     }
 
@@ -440,6 +543,8 @@ impl Mieli {
         if let Err(error) = result {
             return self.lifecycle_failure(error);
         };
+        self.autosave_tasks.remove(&tab_id);
+        self.clear_tab_modal(tab_id);
         cx.notify();
         Ok(())
     }
@@ -470,6 +575,8 @@ impl Mieli {
             self.notification = Some(Notification::error(error));
         }
         actions::set_file_menu(cx, self.state.recent_files.paths());
+        self.autosave_tasks.remove(&tab_id);
+        self.clear_tab_modal(tab_id);
         self.refresh_workspace_tree();
         self.refresh_watcher();
         cx.notify();
@@ -511,9 +618,10 @@ impl Mieli {
         }
 
         if let Some(active_id) = self.state.active_tab {
-            let should_save = self
-                .tab_index(active_id)
-                .is_some_and(|index| self.state.tabs[index].dirty);
+            let should_save = self.state.auto_save_enabled
+                && self
+                    .tab_index(active_id)
+                    .is_some_and(|index| self.state.tabs[index].dirty);
             if should_save {
                 let _ = self.save_tab(active_id, cx);
             }
@@ -611,6 +719,97 @@ impl Mieli {
         Ok(())
     }
 
+    pub fn reload_external_file(
+        &mut self,
+        tab_id: TabId,
+        cx: &mut gpui::Context<Self>,
+    ) -> Result<(), LifecycleError> {
+        if self.modal != Some(Modal::ExternalConflict(tab_id)) {
+            return Ok(());
+        }
+        let index = self
+            .tab_index(tab_id)
+            .ok_or(LifecycleError::MissingTab(tab_id))?;
+        let path = self.state.tabs[index].path.clone();
+        let version = self.file_result(disk_version(&path))?;
+        if !version.exists {
+            self.enter_deleted(tab_id, cx);
+            return Ok(());
+        }
+        let source = self.file_result(read_markdown(&path))?;
+        self.replace_editor_from_disk(tab_id, source, version, cx);
+        self.modal = None;
+        cx.notify();
+        Ok(())
+    }
+
+    pub fn keep_mine(&mut self, tab_id: TabId, cx: &mut gpui::Context<Self>) -> bool {
+        if self.modal != Some(Modal::ExternalConflict(tab_id)) {
+            return false;
+        }
+        let Some(index) = self.tab_index(tab_id) else {
+            return false;
+        };
+        self.state.tabs[index].disk_state = DiskState::Conflict;
+        self.modal = None;
+        self.schedule_autosave(tab_id, cx);
+        cx.notify();
+        true
+    }
+
+    pub fn keep_deleted_file_open(&mut self, tab_id: TabId, cx: &mut gpui::Context<Self>) -> bool {
+        if self.modal != Some(Modal::DeletedFile(tab_id)) {
+            return false;
+        }
+        let Some(index) = self.tab_index(tab_id) else {
+            return false;
+        };
+        let tab = &mut self.state.tabs[index];
+        keep_deleted_open(&mut tab.dirty, &mut tab.disk_state);
+        self.modal = None;
+        cx.notify();
+        true
+    }
+
+    pub fn close_deleted_file(&mut self, tab_id: TabId, cx: &mut gpui::Context<Self>) -> bool {
+        if self.modal != Some(Modal::DeletedFile(tab_id)) {
+            return false;
+        }
+        self.modal = None;
+        self.remove_tab(tab_id, cx)
+    }
+
+    pub fn should_close_window(&mut self, cx: &mut gpui::Context<Self>) -> bool {
+        let has_dirty_tabs = self.state.tabs.iter().any(|tab| tab.dirty);
+        match window_close_action(
+            self.allow_quit,
+            has_dirty_tabs,
+            self.state.auto_save_enabled,
+        ) {
+            WindowCloseAction::Allow => true,
+            WindowCloseAction::SaveAll => {
+                if self.save_all(cx).is_ok() && !self.state.tabs.iter().any(|tab| tab.dirty) {
+                    true
+                } else {
+                    self.modal = Some(Modal::Shutdown);
+                    cx.notify();
+                    false
+                }
+            }
+            WindowCloseAction::RequestDecision => {
+                self.modal = Some(Modal::Shutdown);
+                cx.notify();
+                false
+            }
+        }
+    }
+
+    pub fn quit_anyway(&mut self, cx: &mut gpui::Context<Self>) {
+        self.allow_quit = true;
+        self.modal = None;
+        cx.quit();
+    }
+
     pub fn close_active(&mut self, cx: &mut gpui::Context<Self>) -> bool {
         self.state
             .active_tab
@@ -697,6 +896,68 @@ impl Mieli {
             let tab = &self.state.tabs[index];
             autosave_is_current(key, tab.id, tab.autosave_generation, &tab.path, tab.dirty)
         })
+    }
+
+    fn schedule_autosave(&mut self, tab_id: TabId, cx: &mut gpui::Context<Self>) {
+        let Some(index) = self.tab_index(tab_id) else {
+            self.autosave_tasks.remove(&tab_id);
+            return;
+        };
+        let tab = &self.state.tabs[index];
+        if !self.state.auto_save_enabled || !tab.dirty || tab.path.as_os_str().is_empty() {
+            self.autosave_tasks.remove(&tab_id);
+            return;
+        }
+
+        let key = AutosaveKey {
+            tab_id,
+            generation: tab.autosave_generation,
+            path: tab.path.clone(),
+        };
+        let task = cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(Duration::from_millis(800))
+                .await;
+            let _ = this.update(cx, |view, cx| view.run_autosave(key, cx));
+        });
+        self.autosave_tasks.insert(tab_id, task);
+    }
+
+    fn run_autosave(&mut self, key: AutosaveKey, cx: &mut gpui::Context<Self>) {
+        self.autosave_tasks.remove(&key.tab_id);
+        if !self.autosave_key_is_current(&key) {
+            return;
+        }
+        let Some(index) = self.tab_index(key.tab_id) else {
+            return;
+        };
+        let current_source = self.state.tabs[index].editor.read(cx).source();
+        let tab_id = self.state.tabs[index].id;
+        let generation = self.state.tabs[index].autosave_generation;
+        let result = autosave_transition(
+            &key,
+            tab_id,
+            generation,
+            SaveTabState::from_tab(&mut self.state.tabs[index]),
+            current_source,
+            write_markdown,
+        );
+        match result {
+            Ok(true) => self.clear_tab_modal(key.tab_id),
+            Ok(false) => return,
+            Err(error) => self.notification = Some(Notification::error(error)),
+        }
+        cx.notify();
+    }
+
+    fn clear_tab_modal(&mut self, tab_id: TabId) {
+        if matches!(
+            self.modal,
+            Some(Modal::CloseTab(id) | Modal::ExternalConflict(id) | Modal::DeletedFile(id))
+                if id == tab_id
+        ) {
+            self.modal = None;
+        }
     }
 
     fn navigate_tab(&mut self, direction: TabDirection, cx: &mut gpui::Context<Self>) -> bool {
@@ -840,11 +1101,153 @@ impl Mieli {
                 Some(self.state.tabs[index.min(self.state.tabs.len() - 1)].id)
             };
         }
-        if self.modal == Some(Modal::CloseTab(tab_id)) {
-            self.modal = None;
-        }
+        self.clear_tab_modal(tab_id);
         cx.notify();
         true
+    }
+
+    fn poll_watcher(&mut self, cx: &mut gpui::Context<Self>) {
+        let events = self
+            .watcher
+            .as_ref()
+            .map(FileWatcherService::drain)
+            .unwrap_or_default();
+        if events.is_empty() {
+            return;
+        }
+
+        let mut changed_paths = BTreeSet::new();
+        let mut rescan_workspace = false;
+        for event in events {
+            match event {
+                FileSystemEvent::Changed(path) => {
+                    changed_paths.insert(path);
+                }
+                FileSystemEvent::Created(path) | FileSystemEvent::Removed(path) => {
+                    if self
+                        .state
+                        .workspace_root
+                        .as_ref()
+                        .is_some_and(|root| path.starts_with(root))
+                    {
+                        rescan_workspace = true;
+                    }
+                    changed_paths.insert(path);
+                }
+                FileSystemEvent::Error { path, message } => {
+                    let message = path.map_or(message.clone(), |path| {
+                        format!("File watcher error for {}: {message}", path.display())
+                    });
+                    self.notification = Some(Notification::error(message));
+                }
+            }
+        }
+
+        for path in changed_paths {
+            self.handle_changed_path(path, cx);
+        }
+        if rescan_workspace {
+            self.refresh_workspace_tree();
+        }
+        cx.notify();
+    }
+
+    fn handle_changed_path(&mut self, path: PathBuf, cx: &mut gpui::Context<Self>) {
+        let Some(tab_id) = self.tab_id_for_event_path(&path) else {
+            return;
+        };
+        let Some(index) = self.tab_index(tab_id) else {
+            return;
+        };
+        let tab_path = self.state.tabs[index].path.clone();
+        let version = match disk_version(&tab_path) {
+            Ok(version) => version,
+            Err(error) => {
+                self.notification = Some(Notification::error(error));
+                return;
+            }
+        };
+        if self.state.tabs[index].disk_version == version {
+            return;
+        }
+        if !version.exists {
+            self.enter_deleted(tab_id, cx);
+            return;
+        }
+
+        let resolution = {
+            let tab = &mut self.state.tabs[index];
+            load_external_change(
+                ExternalChangeState {
+                    saved_source: &mut tab.saved_source,
+                    disk_version: &mut tab.disk_version,
+                    dirty: &mut tab.dirty,
+                    disk_state: &mut tab.disk_state,
+                },
+                &tab_path,
+                version.clone(),
+                read_markdown,
+            )
+        };
+        match resolution {
+            Ok(ExternalResolution::Reloaded(source)) => {
+                self.replace_editor_from_disk(tab_id, source, version, cx)
+            }
+            Ok(ExternalResolution::Conflict) => self.enter_conflict(tab_id, cx),
+            Err(error) => self.notification = Some(Notification::error(error)),
+        }
+    }
+
+    fn tab_id_for_event_path(&self, path: &Path) -> Option<TabId> {
+        self.open_tab_paths.get(path).or_else(|| {
+            std::fs::canonicalize(path)
+                .ok()
+                .and_then(|canonical| self.open_tab_paths.get(&canonical))
+        })
+    }
+
+    fn replace_editor_from_disk(
+        &mut self,
+        tab_id: TabId,
+        source: String,
+        version: DiskVersion,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let Some(index) = self.tab_index(tab_id) else {
+            return;
+        };
+        let (editor, scroll) = Self::create_editor(tab_id, source.clone(), cx);
+        let tab = &mut self.state.tabs[index];
+        tab.editor = editor;
+        tab.saved_source = source;
+        tab.disk_version = version;
+        tab.dirty = false;
+        tab.disk_state = DiskState::Synced;
+        tab.autosave_generation = tab.autosave_generation.saturating_add(1);
+        self.autosave_tasks.remove(&tab_id);
+        self.editor_scrolls.insert(tab_id, scroll);
+        cx.notify();
+    }
+
+    fn enter_conflict(&mut self, tab_id: TabId, cx: &mut gpui::Context<Self>) {
+        let Some(index) = self.tab_index(tab_id) else {
+            return;
+        };
+        self.state.tabs[index].disk_state = DiskState::Conflict;
+        self.autosave_tasks.remove(&tab_id);
+        self.modal = Some(Modal::ExternalConflict(tab_id));
+        cx.notify();
+    }
+
+    fn enter_deleted(&mut self, tab_id: TabId, cx: &mut gpui::Context<Self>) {
+        let Some(index) = self.tab_index(tab_id) else {
+            return;
+        };
+        let tab = &mut self.state.tabs[index];
+        apply_removed_event(&mut tab.dirty, &mut tab.disk_state);
+        self.autosave_tasks.remove(&tab_id);
+        self.modal = Some(Modal::DeletedFile(tab_id));
+        cx.notify();
     }
 
     fn watch_open_file(&mut self, path: &Path) {
@@ -983,13 +1386,15 @@ mod tests {
             FileError,
             io::{canonicalize_path, disk_version, write_markdown},
         },
-        state::{DiskState, FileTreeNode, TabId},
+        state::{DiskState, DiskVersion, FileTreeNode, TabId},
     };
 
     use super::{
-        CloseAction, LifecycleError, OpenTabPaths, SaveTabState, TabDirection, adjacent_tab_id,
-        apply_workspace_state, close_action, markdown_destination, save_as_transition,
-        save_tab_transition,
+        CloseAction, ExternalChangeState, ExternalResolution, LifecycleError, OpenTabPaths,
+        SaveTabState, TabDirection, WindowCloseAction, adjacent_tab_id, apply_external_change,
+        apply_removed_event, apply_workspace_state, autosave_transition, close_action,
+        keep_deleted_open, load_external_change, markdown_destination, save_as_transition,
+        save_tab_transition, window_close_action,
     };
 
     #[test]
@@ -1346,6 +1751,206 @@ mod tests {
     fn dirty_close_waits_for_a_decision() {
         assert_eq!(close_action(true), CloseAction::RequestDecision);
         assert_eq!(close_action(false), CloseAction::Remove);
+    }
+
+    #[test]
+    fn clean_external_change_reloads_and_dirty_external_change_conflicts() {
+        let mut saved_source = String::from("# A");
+        let mut version = DiskVersion::default();
+        let mut dirty = false;
+        let mut disk_state = DiskState::Synced;
+        let disk_version = DiskVersion {
+            exists: true,
+            len: 3,
+            digest: 11,
+            ..Default::default()
+        };
+
+        let resolution = apply_external_change(
+            ExternalChangeState {
+                saved_source: &mut saved_source,
+                disk_version: &mut version,
+                dirty: &mut dirty,
+                disk_state: &mut disk_state,
+            },
+            String::from("# B"),
+            disk_version.clone(),
+        );
+
+        assert_eq!(
+            resolution,
+            ExternalResolution::Reloaded(String::from("# B"))
+        );
+        assert_eq!(saved_source, "# B");
+        assert_eq!(version, disk_version);
+        assert!(!dirty);
+        assert_eq!(disk_state, DiskState::Synced);
+
+        dirty = true;
+        let resolution = apply_external_change(
+            ExternalChangeState {
+                saved_source: &mut saved_source,
+                disk_version: &mut version,
+                dirty: &mut dirty,
+                disk_state: &mut disk_state,
+            },
+            String::from("# Disk"),
+            DiskVersion {
+                exists: true,
+                len: 6,
+                digest: 22,
+                ..Default::default()
+            },
+        );
+
+        assert_eq!(resolution, ExternalResolution::Conflict);
+        assert_eq!(saved_source, "# B");
+        assert_eq!(version, disk_version);
+        assert!(dirty);
+        assert_eq!(disk_state, DiskState::Conflict);
+    }
+
+    #[test]
+    fn deleted_file_marks_dirty_and_keep_open_preserves_content() {
+        let source = String::from("# A");
+        let mut dirty = false;
+        let mut disk_state = DiskState::Synced;
+
+        apply_removed_event(&mut dirty, &mut disk_state);
+
+        assert_eq!(disk_state, DiskState::Deleted);
+        assert!(dirty);
+        keep_deleted_open(&mut dirty, &mut disk_state);
+        assert_eq!(source, "# A");
+        assert!(dirty);
+        assert_eq!(disk_state, DiskState::Deleted);
+    }
+
+    #[test]
+    fn failed_external_read_preserves_the_complete_tab_state() {
+        let path = PathBuf::from("notes.md");
+        let mut saved_source = String::from("# Saved");
+        let mut version = DiskVersion {
+            exists: true,
+            len: 7,
+            digest: 11,
+            ..Default::default()
+        };
+        let old_version = version.clone();
+        let mut dirty = true;
+        let mut disk_state = DiskState::Synced;
+
+        let result = load_external_change(
+            ExternalChangeState {
+                saved_source: &mut saved_source,
+                disk_version: &mut version,
+                dirty: &mut dirty,
+                disk_state: &mut disk_state,
+            },
+            &path,
+            DiskVersion {
+                exists: true,
+                len: 6,
+                digest: 22,
+                ..Default::default()
+            },
+            |path| Err(FileError::other(path, "read")),
+        );
+
+        assert!(result.is_err());
+        assert_eq!(saved_source, "# Saved");
+        assert_eq!(version, old_version);
+        assert!(dirty);
+        assert_eq!(disk_state, DiskState::Synced);
+    }
+
+    #[test]
+    fn window_close_saves_dirty_tabs_when_possible_and_otherwise_requests_a_decision() {
+        assert_eq!(
+            window_close_action(false, false, true),
+            WindowCloseAction::Allow
+        );
+        assert_eq!(
+            window_close_action(false, true, true),
+            WindowCloseAction::SaveAll
+        );
+        assert_eq!(
+            window_close_action(false, true, false),
+            WindowCloseAction::RequestDecision
+        );
+        assert_eq!(
+            window_close_action(true, true, false),
+            WindowCloseAction::Allow
+        );
+    }
+
+    #[test]
+    fn autosave_rejects_stale_identity_and_preserves_dirty_state_on_write_failure() {
+        let path = PathBuf::from("notes.md");
+        let mut tab_path = path.clone();
+        let mut title = String::from("notes.md");
+        let mut saved_source = String::from("# Saved");
+        let mut version = DiskVersion {
+            exists: true,
+            len: 7,
+            digest: 11,
+            ..Default::default()
+        };
+        let old_version = version.clone();
+        let mut dirty = true;
+        let mut disk_state = DiskState::Conflict;
+        let key = crate::autosave::AutosaveKey {
+            tab_id: TabId(7),
+            generation: 3,
+            path,
+        };
+        let mut writes = 0;
+
+        let stale = autosave_transition(
+            &key,
+            TabId(7),
+            4,
+            SaveTabState {
+                path: &mut tab_path,
+                title: &mut title,
+                saved_source: &mut saved_source,
+                disk_version: &mut version,
+                dirty: &mut dirty,
+                disk_state: &mut disk_state,
+            },
+            String::from("# Local"),
+            |_, _| {
+                writes += 1;
+                Ok(DiskVersion::default())
+            },
+        )
+        .unwrap();
+
+        assert!(!stale);
+        assert_eq!(writes, 0);
+
+        let error = autosave_transition(
+            &key,
+            TabId(7),
+            3,
+            SaveTabState {
+                path: &mut tab_path,
+                title: &mut title,
+                saved_source: &mut saved_source,
+                disk_version: &mut version,
+                dirty: &mut dirty,
+                disk_state: &mut disk_state,
+            },
+            String::from("# Local"),
+            |path, _| Err(FileError::other(path, "write")),
+        )
+        .unwrap_err();
+
+        assert!(matches!(error, LifecycleError::File(_)));
+        assert_eq!(saved_source, "# Saved");
+        assert_eq!(version, old_version);
+        assert!(dirty);
+        assert_eq!(disk_state, DiskState::Conflict);
     }
 
     #[test]

@@ -18,7 +18,14 @@ fn main() {
             },
             |window, cx| {
                 bezel::theme::appearance::observe_window(window, cx).detach();
-                cx.new(app::Mieli::new)
+                let view = cx.new(app::Mieli::new);
+                let weak_view = view.downgrade();
+                window.on_window_should_close(cx, move |_, cx| {
+                    weak_view
+                        .update(cx, |view, cx| view.should_close_window(cx))
+                        .unwrap_or(true)
+                });
+                view
             },
         )
         .expect("Mieli window should open");
