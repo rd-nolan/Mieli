@@ -52,6 +52,8 @@ fn tab_strip(
         };
         let selected = active_tab == Some(tab.id);
         let tab_element_id = ElementId::Name(SharedString::from(format!("tab-{}", tab.id.0)));
+        let tab_label_element_id =
+            ElementId::Name(SharedString::from(format!("tab-label-{}", tab.id.0)));
         let close_element_id =
             ElementId::Name(SharedString::from(format!("tab-close-{}", tab.id.0)));
         let tab_button = div()
@@ -69,13 +71,21 @@ fn tab_strip(
             })
             .when(selected, |tab| tab.bg(theme.element_active))
             .hover(|style| style.bg(theme.element_hover))
-            .on_click(cx.listener(move |this, _, _, cx| {
-                this.switch_tab(tab_id, cx);
-            }))
-            .child(label)
+            .child(
+                div()
+                    .id(tab_label_element_id)
+                    .flex()
+                    .items_center()
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.switch_tab(tab_id, cx);
+                    }))
+                    .child(label),
+            )
             .child(
                 div()
                     .id(close_element_id)
+                    .flex()
+                    .items_center()
                     .px(px(2.0))
                     .text_color(theme.text_faint)
                     .on_click(cx.listener(move |this, _, _, cx| {

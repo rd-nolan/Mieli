@@ -15,9 +15,7 @@ pub fn render(
 ) -> bezel::gpui::Stateful<bezel::gpui::Div> {
     let theme = Theme::of(cx).clone();
     let toolbar = toolbar(view, &theme, cx);
-    let body = if view.state.tabs.is_empty() {
-        empty_state(&theme, cx).into_any_element()
-    } else {
+    let body = if view.state.workspace_root.is_some() || !view.state.tabs.is_empty() {
         let mut content = div().id("mieli-workspace").flex().flex_1().min_h_0();
         if view.state.sidebar_visible {
             content = content.child(sidebar::render(view, &theme, cx));
@@ -25,6 +23,8 @@ pub fn render(
         content
             .child(tabs::render(view, window, &theme, cx))
             .into_any_element()
+    } else {
+        empty_state(&theme, cx).into_any_element()
     };
 
     let mut root = div()
