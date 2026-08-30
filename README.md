@@ -143,7 +143,7 @@ As of 2026-08-30 on host target `aarch64-apple-darwin`, `cargo fmt --check`, `ca
 
 `rustup target list --installed` currently reports only the host target `aarch64-apple-darwin`, so there were no installed non-host desktop targets available for additional `cargo check --target ...` coverage in this run.
 
-The full command record and the honest manual smoke-test status for this run are written to `.superpowers/sdd/2026-08-29-mieli-markdown-editor/task-9-report.md`.
+Manual GUI smoke testing was not run in this verification pass.
 
 ## Known limitations
 
