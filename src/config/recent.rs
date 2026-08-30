@@ -6,7 +6,7 @@ use std::{
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 
-use crate::file::io::canonicalize_path;
+use crate::file::io::{canonicalize_path, is_markdown_file, validate_markdown_path};
 
 use super::recent_files_path;
 
@@ -27,6 +27,7 @@ pub struct RecentFiles {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RecentFilesError {
+    NotMarkdown { path: PathBuf },
     ConfigUnavailable,
     Read { path: PathBuf },
     Parse { path: PathBuf },
@@ -78,6 +79,9 @@ impl RecentFiles {
     }
 
     pub fn record_success<P: AsRef<Path>>(&mut self, path: P) -> Result<(), RecentFilesError> {
+        validate_markdown_path(path.as_ref()).map_err(|_| RecentFilesError::NotMarkdown {
+            path: path.as_ref().to_path_buf(),
+        })?;
         let path = self.prepare_stored_path(path.as_ref())?;
         self.insert_path(path);
         self.save()
@@ -135,6 +139,19 @@ impl RecentFiles {
         let mut normalized_paths = Vec::new();
 
         for path in paths {
+            if !is_markdown_file(&path) {
+                continue;
+            }
+
+            let path = if canonicalize_on_record {
+                match canonicalize_path(&path) {
+                    Ok(canonical) => canonical,
+                    Err(_) => path,
+                }
+            } else {
+                path
+            };
+
             if normalized_paths.iter().any(|candidate| candidate == &path) {
                 continue;
             }
@@ -204,6 +221,11 @@ impl RecentFiles {
 impl std::fmt::Display for RecentFilesError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::NotMarkdown { path } => write!(
+                f,
+                "Could not add {} to Recent Files: expected a Markdown file (.md or .markdown).",
+                path.display()
+            ),
             Self::ConfigUnavailable => {
                 f.write_str("Could not resolve the Recent Files configuration directory.")
             }
@@ -277,6 +299,19 @@ mod tests {
     }
 
     #[test]
+    fn recent_files_reject_non_markdown_paths() {
+        let mut recent = RecentFiles::in_memory(20);
+
+        let error = recent.record_success(path("notes.txt")).unwrap_err();
+
+        assert!(matches!(
+            error,
+            super::RecentFilesError::NotMarkdown { path } if path == Path::new("notes.txt")
+        ));
+        assert!(recent.paths().is_empty());
+    }
+
+    #[test]
     fn capacity_is_twenty_and_remove_drops_missing_entries() {
         let mut recent = RecentFiles::in_memory(20);
 
@@ -319,6 +354,31 @@ mod tests {
             &[
                 second.canonicalize().unwrap(),
                 first.canonicalize().unwrap()
+            ]
+        );
+    }
+
+    #[test]
+    fn loading_recent_paths_canonicalizes_and_deduplicates_config_entries() {
+        let temp = TempDir::new();
+        let config_path = temp.path().join("recent.json");
+        let nested = temp.path().join("nested");
+        fs::create_dir_all(&nested).unwrap();
+        let note = temp.write_markdown("note.md");
+        let alias = nested.join("..").join("note.md");
+        let stale = temp.path().join("stale.md");
+        let config = serde_json::json!({
+            "recent_files": [alias, note, stale, temp.path().join("ignored.txt")]
+        });
+        fs::write(&config_path, serde_json::to_vec(&config).unwrap()).unwrap();
+
+        let loaded = RecentFiles::load_from_path(config_path, 20).unwrap();
+
+        assert_eq!(
+            loaded.paths(),
+            &[
+                fs::canonicalize(&note).unwrap(),
+                fs::canonicalize(temp.path()).unwrap().join("stale.md")
             ]
         );
     }

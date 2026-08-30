@@ -6,6 +6,9 @@ pub mod watcher;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum FileError {
+    NotMarkdown {
+        path: PathBuf,
+    },
     InvalidUtf8 {
         path: PathBuf,
         operation: &'static str,
@@ -60,6 +63,11 @@ impl FileError {
 impl fmt::Display for FileError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::NotMarkdown { path } => write!(
+                f,
+                "Could not open {}: expected a Markdown file (.md or .markdown).",
+                path.display()
+            ),
             Self::InvalidUtf8 { .. } => f.write_str("The file is not valid UTF-8."),
             Self::NotFound { path, operation } => {
                 write!(

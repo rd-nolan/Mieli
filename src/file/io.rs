@@ -13,6 +13,16 @@ pub fn is_markdown_file(path: &Path) -> bool {
         .is_some_and(|ext| ext.eq_ignore_ascii_case("md") || ext.eq_ignore_ascii_case("markdown"))
 }
 
+pub fn validate_markdown_path(path: &Path) -> Result<(), FileError> {
+    if is_markdown_file(path) {
+        Ok(())
+    } else {
+        Err(FileError::NotMarkdown {
+            path: path.to_path_buf(),
+        })
+    }
+}
+
 pub fn read_markdown(path: &Path) -> Result<String, FileError> {
     fs::read_to_string(path).map_err(|error| FileError::from_io(path, "read", error))
 }
@@ -80,7 +90,7 @@ mod tests {
 
     use super::{
         canonicalize_path, digest_bytes, disk_version, is_markdown_file, read_markdown,
-        write_markdown,
+        validate_markdown_path, write_markdown,
     };
 
     #[test]
@@ -91,6 +101,20 @@ mod tests {
         assert!(is_markdown_file(Path::new("note.MARKDOWN")));
         assert!(!is_markdown_file(Path::new("test.txt")));
         assert!(!is_markdown_file(Path::new("image.png")));
+    }
+
+    #[test]
+    fn validate_markdown_path_rejects_non_markdown_paths() {
+        let error = validate_markdown_path(Path::new("notes.txt")).unwrap_err();
+
+        assert!(matches!(
+            &error,
+            crate::file::FileError::NotMarkdown { path } if path == Path::new("notes.txt")
+        ));
+        assert_eq!(
+            error.to_string(),
+            "Could not open notes.txt: expected a Markdown file (.md or .markdown)."
+        );
     }
 
     #[test]

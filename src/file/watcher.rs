@@ -6,7 +6,10 @@ use std::{
 };
 
 use directories::BaseDirs;
-use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{
+    Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
+    event::{ModifyKind, RenameMode},
+};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum FileSystemEvent {
@@ -139,6 +142,8 @@ pub fn translate_event(kind: EventKind, path: PathBuf) -> FileSystemEvent {
     match kind {
         EventKind::Create(_) => FileSystemEvent::Created(path),
         EventKind::Remove(_) => FileSystemEvent::Removed(path),
+        EventKind::Modify(ModifyKind::Name(RenameMode::From)) => FileSystemEvent::Removed(path),
+        EventKind::Modify(ModifyKind::Name(RenameMode::To)) => FileSystemEvent::Created(path),
         EventKind::Modify(_) => FileSystemEvent::Changed(path),
         EventKind::Any | EventKind::Access(_) | EventKind::Other => unsupported_event(kind, path),
     }
@@ -146,12 +151,37 @@ pub fn translate_event(kind: EventKind, path: PathBuf) -> FileSystemEvent {
 
 fn translate_notify_result(result: notify::Result<Event>) -> Vec<FileSystemEvent> {
     match result {
-        Ok(event) => event
-            .paths
-            .into_iter()
-            .map(|path| translate_event(event.kind, path))
-            .collect(),
+        Ok(event) => translate_notify_event(event.kind, event.paths),
         Err(error) => translate_notify_error(error),
+    }
+}
+
+fn translate_notify_event(kind: EventKind, paths: Vec<PathBuf>) -> Vec<FileSystemEvent> {
+    let EventKind::Modify(ModifyKind::Name(rename_mode)) = kind else {
+        return paths
+            .into_iter()
+            .map(|path| translate_event(kind, path))
+            .collect();
+    };
+
+    match rename_mode {
+        RenameMode::From => paths.into_iter().map(FileSystemEvent::Removed).collect(),
+        RenameMode::To => paths.into_iter().map(FileSystemEvent::Created).collect(),
+        RenameMode::Both | RenameMode::Any | RenameMode::Other => {
+            let mut paths = paths.into_iter();
+            let Some(from) = paths.next() else {
+                return Vec::new();
+            };
+            let fallback_target = from.clone();
+            let mut events = vec![FileSystemEvent::Removed(from)];
+            if let Some(to) = paths.next() {
+                events.push(FileSystemEvent::Created(to));
+            } else {
+                events.push(FileSystemEvent::Created(fallback_target));
+            }
+            events.extend(paths.map(FileSystemEvent::Created));
+            events
+        }
     }
 }
 
@@ -244,12 +274,12 @@ mod tests {
 
     use notify::{
         Config, EventKind, RecursiveMode, Watcher,
-        event::{CreateKind, ModifyKind, RemoveKind},
+        event::{CreateKind, ModifyKind, RemoveKind, RenameMode},
     };
 
     use super::{
         FileSystemEvent, WatchError, canonical_watch_directory, ensure_watched,
-        file_parent_directory, translate_event, translate_notify_error,
+        file_parent_directory, translate_event, translate_notify_error, translate_notify_event,
     };
 
     #[test]
@@ -265,6 +295,53 @@ mod tests {
         assert_eq!(
             translate_event(EventKind::Remove(RemoveKind::Any), path("A.md")),
             FileSystemEvent::Removed(path("A.md"))
+        );
+        assert_eq!(
+            translate_event(
+                EventKind::Modify(ModifyKind::Name(RenameMode::From)),
+                path("old.md")
+            ),
+            FileSystemEvent::Removed(path("old.md"))
+        );
+        assert_eq!(
+            translate_event(
+                EventKind::Modify(ModifyKind::Name(RenameMode::To)),
+                path("new.md")
+            ),
+            FileSystemEvent::Created(path("new.md"))
+        );
+    }
+
+    #[test]
+    fn notify_rename_events_become_remove_then_create_events() {
+        let expected = vec![
+            FileSystemEvent::Removed(path("old.md")),
+            FileSystemEvent::Created(path("new.md")),
+        ];
+
+        assert_eq!(
+            translate_notify_event(
+                EventKind::Modify(ModifyKind::Name(RenameMode::Both)),
+                vec![path("old.md"), path("new.md")]
+            ),
+            expected
+        );
+        assert_eq!(
+            translate_notify_event(
+                EventKind::Modify(ModifyKind::Name(RenameMode::Any)),
+                vec![path("old.md"), path("new.md")]
+            ),
+            expected
+        );
+        assert_eq!(
+            translate_notify_event(
+                EventKind::Modify(ModifyKind::Name(RenameMode::Other)),
+                vec![path("old.md")]
+            ),
+            vec![
+                FileSystemEvent::Removed(path("old.md")),
+                FileSystemEvent::Created(path("old.md")),
+            ]
         );
     }
 

@@ -15,7 +15,10 @@ use crate::{
     config::recent::RecentFiles,
     file::{
         FileError,
-        io::{canonicalize_path, disk_version, is_markdown_file, read_markdown, write_markdown},
+        io::{
+            canonicalize_path, disk_version, is_markdown_file, read_markdown,
+            validate_markdown_path, write_markdown,
+        },
         scanner::scan_markdown_tree,
         watcher::{FileSystemEvent, FileWatcherService, WatchError},
     },
@@ -418,6 +421,9 @@ pub enum LifecycleError {
         tab_id: TabId,
     },
     MissingRecentEntry(usize),
+    SaveAll {
+        errors: Vec<LifecycleError>,
+    },
     MissingRecentFile {
         path: PathBuf,
         cleanup_error: Option<String>,
@@ -444,6 +450,21 @@ impl fmt::Display for LifecycleError {
             }
             Self::MissingRecentEntry(index) => {
                 write!(f, "Recent file entry {} is no longer available.", index + 1)
+            }
+            Self::SaveAll { errors } => {
+                write!(
+                    f,
+                    "Could not save all dirty files ({} failure{}): ",
+                    errors.len(),
+                    if errors.len() == 1 { "" } else { "s" }
+                )?;
+                for (index, error) in errors.iter().enumerate() {
+                    if index > 0 {
+                        f.write_str("; ")?;
+                    }
+                    error.fmt(f)?;
+                }
+                Ok(())
             }
             Self::MissingRecentFile {
                 path,
@@ -568,9 +589,11 @@ impl Mieli {
         path: PathBuf,
         cx: &mut gpui::Context<Self>,
     ) -> Result<TabId, LifecycleError> {
+        self.file_result(validate_markdown_path(&path))?;
         let canonical = self.file_result(canonicalize_path(&path))?;
         if let Some(tab_id) = self.open_tab_paths.get(&canonical) {
             self.state.active_tab = Some(tab_id);
+            self.record_recent_open(&canonical, cx);
             cx.notify();
             return Ok(tab_id);
         }
@@ -596,10 +619,7 @@ impl Mieli {
         self.editor_scrolls.insert(tab_id, scroll);
         self.state.active_tab = Some(tab_id);
 
-        if let Err(error) = self.state.recent_files.record_success(&canonical) {
-            self.notification = Some(Notification::error(error));
-        }
-        actions::set_file_menu(cx, self.state.recent_files.paths());
+        self.record_recent_open(&canonical, cx);
         self.watch_open_file(&canonical);
         cx.notify();
         Ok(tab_id)
@@ -815,7 +835,7 @@ impl Mieli {
             .filter(|tab| tab.dirty)
             .map(|tab| tab.id)
             .collect::<Vec<_>>();
-        let mut first_error = None;
+        let mut errors = Vec::new();
         for tab_id in dirty_tabs {
             let writable = self.tab_index(tab_id).is_some_and(|index| {
                 let tab = &self.state.tabs[index];
@@ -826,12 +846,12 @@ impl Mieli {
             } else {
                 Err(LifecycleError::UnresolvedExternalChange(tab_id))
             };
-            if first_error.is_none() {
-                first_error = result.err();
+            if let Err(error) = result {
+                errors.push(error);
             }
         }
-        if let Some(error) = first_error {
-            return self.lifecycle_failure(error);
+        if !errors.is_empty() {
+            return self.lifecycle_failure(LifecycleError::SaveAll { errors });
         }
         let has_dirty_tabs = self.has_dirty_tabs();
         clear_shutdown_modal(&mut self.modal, &mut self.pending_modals, has_dirty_tabs);
@@ -1019,7 +1039,9 @@ impl Mieli {
     }
 
     pub fn quit(&mut self, cx: &mut gpui::Context<Self>) {
-        cx.quit();
+        if self.should_close_window(cx) {
+            cx.quit();
+        }
     }
 
     pub fn autosave_key_is_current(&self, key: &AutosaveKey) -> bool {
@@ -1483,6 +1505,13 @@ impl Mieli {
             Ok(value) => Ok(value),
             Err(error) => self.lifecycle_failure(error.into()),
         }
+    }
+
+    fn record_recent_open(&mut self, path: &Path, cx: &mut gpui::Context<Self>) {
+        if let Err(error) = self.state.recent_files.record_success(path) {
+            self.notification = Some(Notification::error(error));
+        }
+        actions::set_file_menu(cx, self.state.recent_files.paths());
     }
 
     fn lifecycle_failure<T>(&mut self, error: LifecycleError) -> Result<T, LifecycleError> {
@@ -2047,6 +2076,22 @@ mod tests {
         assert_eq!(window_close_action(false, false), WindowCloseAction::Allow);
         assert_eq!(window_close_action(false, true), WindowCloseAction::SaveAll);
         assert_eq!(window_close_action(true, true), WindowCloseAction::Allow);
+    }
+
+    #[test]
+    fn save_all_error_reports_every_failed_tab() {
+        let error = LifecycleError::SaveAll {
+            errors: vec![
+                LifecycleError::File(FileError::other(Path::new("first.md"), "write")),
+                LifecycleError::UnresolvedExternalChange(TabId(2)),
+            ],
+        };
+
+        let message = error.to_string();
+
+        assert!(message.contains("2 failures"));
+        assert!(message.contains("Could not write first.md"));
+        assert!(message.contains("Tab 2 has an unresolved external file change."));
     }
 
     #[test]
