@@ -1,0 +1,22 @@
+[package]
+name = "mieli"
+version = "0.1.0"
+edition = "2024"
+
+[package.metadata.bundle]
+name = "Mieli"
+identifier = "com.valcub.app.Mieli"
+icon = ["resources/mieli.icns"]
+short_description = "Native Markdown editor"
+
+[dependencies]
+bezel = { git = "https://github.com/crabtalk/bezel", rev = "0bd3940829787bfe7214f79c2ca779f63ac1e332" }
+editor = { package = "bezel-editor", git = "https://github.com/crabtalk/bezel", rev = "0bd3940829787bfe7214f79c2ca779f63ac1e332" }
+markdown = { package = "bezel-markdown", git = "https://github.com/crabtalk/bezel", rev = "0bd3940829787bfe7214f79c2ca779f63ac1e332" }
+gpui = { package = "bezel-gpui", version = "=0.3.4" }
+gpui_platform = { package = "bezel-gpui-platform", version = "=0.3.4", features = ["font-kit"] }
+directories = "6"
+notify = "6"
+rfd = "0.15"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
