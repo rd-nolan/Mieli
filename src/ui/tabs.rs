@@ -61,21 +61,21 @@ fn tab_strip(
             .flex()
             .items_center()
             .gap(px(8.0))
-            .px(px(10.0))
-            .py(px(5.0))
-            .rounded(px(5.0))
             .text_color(if selected {
                 theme.text
             } else {
                 theme.text_muted
             })
-            .when(selected, |tab| tab.bg(theme.element_active))
-            .hover(|style| style.bg(theme.element_hover))
             .child(
                 div()
                     .id(tab_label_element_id)
                     .flex()
                     .items_center()
+                    .px(px(10.0))
+                    .py(px(5.0))
+                    .rounded(px(5.0))
+                    .when(selected, |tab| tab.bg(theme.element_active))
+                    .hover(|style| style.bg(theme.element_hover))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.switch_tab(tab_id, cx);
                     }))
