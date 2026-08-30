@@ -304,6 +304,7 @@ pub struct Mieli {
     pub notification: Option<Notification>,
     watcher: Option<FileWatcherService>,
     autosave_tasks: HashMap<TabId, gpui::Task<()>>,
+    editor_scrolls: HashMap<TabId, gpui::ScrollHandle>,
     open_tab_paths: OpenTabPaths,
 }
 
@@ -332,6 +333,7 @@ impl Mieli {
             notification,
             watcher,
             autosave_tasks: HashMap::new(),
+            editor_scrolls: HashMap::new(),
             open_tab_paths: OpenTabPaths::default(),
         };
         actions::set_file_menu(cx, this.state.recent_files.paths());
@@ -341,7 +343,7 @@ impl Mieli {
     pub fn new_tab(&mut self, cx: &mut gpui::Context<Self>) -> TabId {
         let tab_id = self.open_tab_paths.allocate();
         let source = String::new();
-        let editor = Self::create_editor(tab_id, source.clone(), cx);
+        let (editor, scroll) = Self::create_editor(tab_id, source.clone(), cx);
         let title = if self.state.tabs.iter().any(|tab| tab.title == "Untitled") {
             format!("Untitled {}", tab_id.0)
         } else {
@@ -359,6 +361,7 @@ impl Mieli {
             disk_state: DiskState::Synced,
             autosave_generation: 0,
         });
+        self.editor_scrolls.insert(tab_id, scroll);
         self.state.active_tab = Some(tab_id);
         cx.notify();
         tab_id
@@ -379,7 +382,7 @@ impl Mieli {
         let source = self.file_result(read_markdown(&canonical))?;
         let version = self.file_result(disk_version(&canonical))?;
         let tab_id = self.open_tab_paths.insert(canonical.clone());
-        let editor = Self::create_editor(tab_id, source.clone(), cx);
+        let (editor, scroll) = Self::create_editor(tab_id, source.clone(), cx);
         let title = display_title(&canonical);
 
         self.state.tabs.push(EditorTab {
@@ -393,6 +396,7 @@ impl Mieli {
             disk_state: DiskState::Synced,
             autosave_generation: 0,
         });
+        self.editor_scrolls.insert(tab_id, scroll);
         self.state.active_tab = Some(tab_id);
 
         if let Err(error) = self.state.recent_files.record_success(&canonical) {
@@ -478,12 +482,15 @@ impl Mieli {
         cx: &mut gpui::Context<Self>,
     ) -> Result<(), LifecycleError> {
         let canonical = self.file_result(canonicalize_path(&root))?;
-        let tree = self.file_result(scan_markdown_tree(&canonical))?;
+        let mut tree = self.file_result(scan_markdown_tree(&canonical))?;
         let watcher = match self.build_watcher(Some(&canonical)) {
             Ok(watcher) => watcher,
             Err(error) => return self.lifecycle_failure(error.into()),
         };
 
+        if self.state.workspace_root.as_ref() == Some(&canonical) {
+            crate::ui::file_tree::preserve_expansion(&self.state.file_tree, &mut tree);
+        }
         apply_workspace_state(
             &mut self.state.workspace_root,
             &mut self.state.file_tree,
@@ -614,6 +621,29 @@ impl Mieli {
         self.state.sidebar_visible = !self.state.sidebar_visible;
         cx.notify();
         self.state.sidebar_visible
+    }
+
+    pub fn toggle_tree_path(&mut self, path: &Path, cx: &mut gpui::Context<Self>) -> bool {
+        let changed = crate::ui::file_tree::toggle_expansion(&mut self.state.file_tree, path);
+        if changed {
+            cx.notify();
+        }
+        changed
+    }
+
+    pub fn dismiss_modal(&mut self, cx: &mut gpui::Context<Self>) {
+        if self.modal.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    pub fn active_editor_surface(
+        &self,
+    ) -> Option<(gpui::Entity<editor::Editor>, gpui::ScrollHandle)> {
+        let tab_id = self.state.active_tab?;
+        let tab = self.state.tabs.iter().find(|tab| tab.id == tab_id)?;
+        let scroll = self.editor_scrolls.get(&tab_id)?.clone();
+        Some((tab.editor.clone(), scroll))
     }
 
     pub fn next_tab(&mut self, cx: &mut gpui::Context<Self>) -> bool {
@@ -777,7 +807,7 @@ impl Mieli {
         tab_id: TabId,
         source: String,
         cx: &mut gpui::Context<Self>,
-    ) -> gpui::Entity<editor::Editor> {
+    ) -> (gpui::Entity<editor::Editor>, gpui::ScrollHandle) {
         let scroll = gpui::ScrollHandle::new();
         let editor = cx.new({
             let scroll = scroll.clone();
@@ -785,7 +815,7 @@ impl Mieli {
         });
         cx.observe(&editor, move |view, _, cx| view.editor_changed(tab_id, cx))
             .detach();
-        editor
+        (editor, scroll)
     }
 
     fn tab_index(&self, tab_id: TabId) -> Option<usize> {
@@ -801,6 +831,7 @@ impl Mieli {
             self.open_tab_paths.remove(&removed.path);
         }
         self.autosave_tasks.remove(&tab_id);
+        self.editor_scrolls.remove(&tab_id);
 
         if self.state.active_tab == Some(tab_id) {
             self.state.active_tab = if self.state.tabs.is_empty() {
@@ -870,7 +901,10 @@ impl Mieli {
             return;
         };
         match scan_markdown_tree(&root) {
-            Ok(tree) => self.state.file_tree = tree,
+            Ok(mut tree) => {
+                crate::ui::file_tree::preserve_expansion(&self.state.file_tree, &mut tree);
+                self.state.file_tree = tree;
+            }
             Err(error) => self.notification = Some(Notification::error(error)),
         }
     }
@@ -897,10 +931,10 @@ fn display_title(path: &Path) -> String {
 impl gpui::Render for Mieli {
     fn render(
         &mut self,
-        _: &mut gpui::Window,
+        window: &mut gpui::Window,
         cx: &mut gpui::Context<Self>,
     ) -> impl gpui::IntoElement {
-        gpui::div()
+        crate::ui::root::render(self, window, cx)
             .on_action(cx.listener(Self::on_open_file))
             .on_action(cx.listener(Self::on_open_folder))
             .on_action(cx.listener(Self::on_save))
