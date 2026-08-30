@@ -182,13 +182,13 @@ fn save_as_transition(
 ) -> Result<PathBuf, LifecycleError> {
     let destination = markdown_destination(&destination);
     let candidate = save_as_candidate(&destination)?;
-    if let Some(existing) = open_tab_paths.get(&candidate) {
-        if existing != tab_id {
-            return Err(LifecycleError::PathAlreadyOpen {
-                path: candidate,
-                tab_id: existing,
-            });
-        }
+    if let Some(existing) = open_tab_paths.get(&candidate)
+        && existing != tab_id
+    {
+        return Err(LifecycleError::PathAlreadyOpen {
+            path: candidate,
+            tab_id: existing,
+        });
     }
 
     let version = writer(&candidate, &current_source)?;
@@ -951,17 +951,17 @@ impl Mieli {
         let Some(modal) = self.modal else {
             return;
         };
-        if let Modal::ExternalConflict(tab_id) = modal {
-            if let Some(index) = self.tab_index(tab_id) {
-                let tab = &mut self.state.tabs[index];
-                apply_conflict_decision(
-                    &mut tab.disk_state,
-                    &mut tab.autosave_blocked,
-                    ConflictDecision::Cancel,
-                );
-                tab.autosave_generation = tab.autosave_generation.saturating_add(1);
-                self.autosave_tasks.remove(&tab_id);
-            }
+        if let Modal::ExternalConflict(tab_id) = modal
+            && let Some(index) = self.tab_index(tab_id)
+        {
+            let tab = &mut self.state.tabs[index];
+            apply_conflict_decision(
+                &mut tab.disk_state,
+                &mut tab.autosave_blocked,
+                ConflictDecision::Cancel,
+            );
+            tab.autosave_generation = tab.autosave_generation.saturating_add(1);
+            self.autosave_tasks.remove(&tab_id);
         }
         advance_modal(&mut self.modal, &mut self.pending_modals);
         cx.notify();

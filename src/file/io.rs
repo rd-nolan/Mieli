@@ -186,6 +186,16 @@ mod tests {
         );
     }
 
+    #[test]
+    fn bezel_round_trip_reaches_a_fixed_point() {
+        let source = "# Title\n\nParagraph with **bold**, *italic*, and [a link](https://example.com).\n\n- bullet\n- [ ] item\n- [x] done\n\n1. first\n2. second\n\n> quote\n\nUse `inline` code.\n\n```rust\nfn main() {}\n```\n\n| Col | Value |\n| --- | --- |\n| A | 1 |\n";
+
+        let first = markdown::serialize(&markdown::parse(source));
+        let second = markdown::serialize(&markdown::parse(&first));
+
+        assert_eq!(first, second);
+    }
+
     struct TempDir {
         path: PathBuf,
     }
