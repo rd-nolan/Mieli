@@ -5,6 +5,7 @@ use gpui::{App, KeyBinding, Menu, MenuItem};
 gpui::actions!(
     mieli,
     [
+        NewFile,
         OpenFile,
         OpenFolder,
         Save,
@@ -41,6 +42,7 @@ gpui::actions!(
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum BindingAction {
+    NewFile,
     Save,
     SaveAs,
     CloseTab,
@@ -63,6 +65,7 @@ impl BindingSpec {
 
     fn into_key_binding(self) -> KeyBinding {
         match self.action {
+            BindingAction::NewFile => KeyBinding::new(self.chord, NewFile, None),
             BindingAction::Save => KeyBinding::new(self.chord, Save, None),
             BindingAction::SaveAs => KeyBinding::new(self.chord, SaveAs, None),
             BindingAction::CloseTab => KeyBinding::new(self.chord, CloseTab, None),
@@ -76,6 +79,10 @@ impl BindingSpec {
 
 fn binding_specs(command: &str) -> Vec<BindingSpec> {
     vec![
+        BindingSpec::new(
+            if command == "cmd" { "cmd-n" } else { "ctrl-n" },
+            BindingAction::NewFile,
+        ),
         BindingSpec::new(
             if command == "cmd" { "cmd-s" } else { "ctrl-s" },
             BindingAction::Save,
@@ -183,6 +190,7 @@ pub(crate) fn set_file_menu(cx: &mut App, recent_paths: &[PathBuf]) {
     let recent_is_empty = recent_items.is_empty();
 
     cx.set_menus([Menu::new("File").items([
+        MenuItem::action("New File", NewFile),
         MenuItem::action("Open File", OpenFile),
         MenuItem::action("Open Folder", OpenFolder),
         MenuItem::submenu(Menu::new("Open Recent").items(recent_items)).disabled(recent_is_empty),
@@ -211,6 +219,7 @@ mod tests {
     #[test]
     fn unit_actions_use_the_mieli_namespace() {
         let names = [
+            NewFile.name(),
             OpenFile.name(),
             OpenFolder.name(),
             Save.name(),
@@ -247,6 +256,7 @@ mod tests {
         assert_eq!(
             names,
             [
+                "mieli::NewFile",
                 "mieli::OpenFile",
                 "mieli::OpenFolder",
                 "mieli::Save",
@@ -287,6 +297,7 @@ mod tests {
         assert_eq!(
             binding_specs("cmd"),
             vec![
+                BindingSpec::new("cmd-n", BindingAction::NewFile),
                 BindingSpec::new("cmd-s", BindingAction::Save),
                 BindingSpec::new("cmd-shift-s", BindingAction::SaveAs),
                 BindingSpec::new("cmd-w", BindingAction::CloseTab),
@@ -299,6 +310,7 @@ mod tests {
         assert_eq!(
             binding_specs("ctrl"),
             vec![
+                BindingSpec::new("ctrl-n", BindingAction::NewFile),
                 BindingSpec::new("ctrl-s", BindingAction::Save),
                 BindingSpec::new("ctrl-shift-s", BindingAction::SaveAs),
                 BindingSpec::new("ctrl-w", BindingAction::CloseTab),

@@ -44,13 +44,14 @@ Mieli does not currently call `markdown::parse` and `markdown::serialize` in the
 
 ### Open files and folders
 
-- `Open File` opens one `.md` or `.markdown` file through a native dialog.
-- `Open Folder` scans the selected directory recursively and shows only directories that contain Markdown descendants.
+- `New Document` creates an untitled Markdown scratchpad.
+- `Open File…` opens one `.md` or `.markdown` file through a native dialog.
+- `Open Folder…` scans the selected directory recursively and shows only directories that contain Markdown descendants.
 - Opening a file that is already open focuses the existing tab instead of opening a duplicate.
 
 ### Tabs and sidebar
 
-- The sidebar is hidden by default.
+- The sidebar is visible by default and can be toggled from the toolbar or File menu.
 - The file tree sorts directories before files, compares names case-insensitively, and uses the full path only as a final tie-breaker.
 - The tab strip keeps one tab per canonical file path.
 - Switching tabs attempts a synchronous save of the previously active dirty tab only when autosave is enabled.
@@ -61,6 +62,13 @@ Mieli does not currently call `markdown::parse` and `markdown::serialize` in the
 - `Save As` writes first, then canonicalizes the destination and retargets the tab to that new canonical path.
 - If the chosen Save As destination does not already end in `.md` or `.markdown`, Mieli appends `.md`.
 - Save operations do not create missing parent directories.
+
+### macOS app bundle and icon
+
+- `resources/mieli_logo_1024x1024.png` is the source logo copied from the Xcode AppIcon set. It is the macOS `512x512@2x` asset and is the highest-resolution supplied variant.
+- `resources/mieli.icns` packages the supplied 16px through 1024px variants for Finder and Dock rendering.
+- Run `bash scripts/package-macos.sh` to build `target/release/Mieli.app` with the Logo installed as its bundle icon.
+- The Cargo manifest also exposes the same `.icns` file to `cargo-bundle`.
 
 ## Autosave
 
@@ -117,6 +125,7 @@ On the representative Task 9 corpus, the first serialization changed `*italic*` 
 
 On macOS:
 
+- `cmd-n`: New File
 - `cmd-s`: Save
 - `cmd-shift-s`: Save As
 - `cmd-w`: Close Tab
@@ -127,6 +136,7 @@ On macOS:
 
 On non-macOS builds:
 
+- `ctrl-n`: New File
 - `ctrl-s`: Save
 - `ctrl-shift-s`: Save As
 - `ctrl-w`: Close Tab
@@ -143,12 +153,11 @@ As of 2026-08-30 on host target `aarch64-apple-darwin`, `cargo fmt --check`, `ca
 
 `rustup target list --installed` currently reports only the host target `aarch64-apple-darwin`, so there were no installed non-host desktop targets available for additional `cargo check --target ...` coverage in this run.
 
-Manual GUI smoke testing was not run in this verification pass.
+Manual GUI smoke testing covers the welcome screen, New Document, sidebar toggle, tab close, and opening/canceling the native file panel.
 
 ## Known limitations
 
 - Mieli currently supports only local UTF-8 Markdown files with `.md` or `.markdown` extensions.
-- There is no user-facing `New File` action yet; the current flow starts from opening an existing file or folder.
 - Save and Save As fail when the destination parent directory does not already exist.
 - Filesystem watching is limited to the workspace root and parent directories of open files outside that workspace; Mieli does not watch arbitrary ancestor trees.
 - Dirty external changes and external deletions are intentionally resolved by modal choice instead of automatic merge or restore logic.

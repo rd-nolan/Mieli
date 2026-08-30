@@ -794,23 +794,31 @@ impl Mieli {
     }
 
     pub fn open_file_dialog(&mut self, cx: &mut gpui::Context<Self>) -> Result<(), LifecycleError> {
-        let Some(path) = rfd::FileDialog::new()
-            .add_filter("Markdown", &["md", "markdown"])
-            .pick_file()
-        else {
-            return Ok(());
-        };
-        self.open_file(path, cx).map(|_| ())
+        cx.spawn(async move |this, cx| {
+            let Some(path) = rfd::FileDialog::new()
+                .add_filter("Markdown", &["md", "markdown"])
+                .pick_file()
+            else {
+                return;
+            };
+            let _ = this.update(cx, |view, cx| view.open_file(path, cx).map(|_| ()));
+        })
+        .detach();
+        Ok(())
     }
 
     pub fn open_folder_dialog(
         &mut self,
         cx: &mut gpui::Context<Self>,
     ) -> Result<(), LifecycleError> {
-        let Some(path) = rfd::FileDialog::new().pick_folder() else {
-            return Ok(());
-        };
-        self.open_folder(path, cx)
+        cx.spawn(async move |this, cx| {
+            let Some(path) = rfd::FileDialog::new().pick_folder() else {
+                return;
+            };
+            let _ = this.update(cx, |view, cx| view.open_folder(path, cx));
+        })
+        .detach();
+        Ok(())
     }
 
     pub fn save_active_as(&mut self, cx: &mut gpui::Context<Self>) -> Result<(), LifecycleError> {
@@ -821,10 +829,16 @@ impl Mieli {
             return self.lifecycle_failure(LifecycleError::MissingTab(tab_id));
         };
         let title = self.state.tabs[index].title.clone();
-        let Some(destination) = rfd::FileDialog::new().set_file_name(title).save_file() else {
-            return Ok(());
-        };
-        self.save_as(tab_id, destination, cx).map(|_| ())
+        cx.spawn(async move |this, cx| {
+            let Some(destination) = rfd::FileDialog::new().set_file_name(title).save_file() else {
+                return;
+            };
+            let _ = this.update(cx, |view, cx| {
+                view.save_as(tab_id, destination, cx).map(|_| ())
+            });
+        })
+        .detach();
+        Ok(())
     }
 
     pub fn save_all(&mut self, cx: &mut gpui::Context<Self>) -> Result<(), LifecycleError> {
@@ -957,6 +971,12 @@ impl Mieli {
         self.state.sidebar_visible = !self.state.sidebar_visible;
         cx.notify();
         self.state.sidebar_visible
+    }
+
+    pub fn dismiss_notification(&mut self, cx: &mut gpui::Context<Self>) {
+        if self.notification.take().is_some() {
+            cx.notify();
+        }
     }
 
     pub fn toggle_tree_path(&mut self, path: &Path, cx: &mut gpui::Context<Self>) -> bool {
@@ -1140,6 +1160,15 @@ impl Mieli {
         cx: &mut gpui::Context<Self>,
     ) {
         let _ = self.open_file_dialog(cx);
+    }
+
+    fn on_new_file(
+        &mut self,
+        _: &actions::NewFile,
+        _: &mut gpui::Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        self.new_tab(cx);
     }
 
     fn on_open_folder(
@@ -1533,6 +1562,7 @@ impl gpui::Render for Mieli {
         cx: &mut gpui::Context<Self>,
     ) -> impl gpui::IntoElement {
         crate::ui::root::render(self, window, cx)
+            .on_action(cx.listener(Self::on_new_file))
             .on_action(cx.listener(Self::on_open_file))
             .on_action(cx.listener(Self::on_open_folder))
             .on_action(cx.listener(Self::on_save))

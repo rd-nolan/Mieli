@@ -1,6 +1,9 @@
+use std::path::Path;
+
 use bezel::{
-    gpui::{Context, ElementId, SharedString, div, prelude::*, px},
+    gpui::{Context, ElementId, IntoElement, SharedString, div, prelude::*, px},
     theme::Theme,
+    ui::icons::{self, icon},
 };
 
 use crate::app::Mieli;
@@ -20,28 +23,45 @@ pub fn render(
             .map(|tab| tab.path.as_path())
     });
     let rows = visible_rows(&view.state.file_tree, active_path);
+    let has_rows = !rows.is_empty();
+    let workspace_name = view.state.workspace_root.as_deref().map(path_display_name);
 
-    let mut tree = div().id("mieli-file-tree").flex().flex_col().gap(px(2.0));
+    let mut tree = div().id("mieli-file-tree").flex().flex_col().gap(px(1.0));
     for row in rows {
         let path = row.path.clone();
         let is_dir = row.is_dir;
-        let marker = if row.is_dir {
-            if row.expanded { "▾" } else { "▸" }
-        } else {
-            "·"
-        };
-        let label = row.name;
         let selected = row.selected;
+        let icon_path = if is_dir {
+            icons::FOLDER
+        } else {
+            icons::DOCUMENT
+        };
+        let disclosure = if is_dir {
+            let disclosure_path = if row.expanded {
+                icons::ARROW_DOWN
+            } else {
+                icons::ARROW_RIGHT
+            };
+            icon(disclosure_path)
+                .size(px(12.0))
+                .text_color(theme.text_faint)
+                .into_any_element()
+        } else {
+            div().size(px(12.0)).into_any_element()
+        };
+        let label = row.name.trim_end_matches('/').to_string();
         let id = ElementId::Name(SharedString::from(format!("tree-{}", path.display())));
+
         let mut item = div()
             .id(id)
             .flex()
             .items_center()
             .gap(px(6.0))
-            .pl(px(10.0 + row.depth as f32 * 16.0))
+            .pl(px(8.0 + row.depth as f32 * 14.0))
             .pr(px(8.0))
-            .py(px(5.0))
-            .rounded(px(5.0))
+            .py(px(4.0))
+            .rounded(px(Theme::control_radius()))
+            .text_size(px(12.0))
             .text_color(if selected {
                 theme.text
             } else {
@@ -56,12 +76,69 @@ pub fn render(
                     let _ = this.open_file(path.clone(), cx);
                 }
             }))
-            .child(div().w(px(14.0)).text_color(theme.text_faint).child(marker))
-            .child(label);
+            .child(disclosure)
+            .child(icon(icon_path).size(px(14.0)).text_color(if selected {
+                theme.accent
+            } else {
+                theme.text_muted
+            }))
+            .child(div().min_w(px(0.0)).flex_1().truncate().child(label));
+
         if is_dir {
             item = item.font_weight(bezel::gpui::FontWeight::MEDIUM);
         }
         tree = tree.child(item);
+    }
+
+    let empty_message = if view.state.workspace_root.is_some() && !has_rows {
+        "No Markdown files yet."
+    } else {
+        ""
+    };
+
+    let mut header = div()
+        .id("mieli-sidebar-header")
+        .flex()
+        .items_center()
+        .gap(px(8.0))
+        .px(px(12.0))
+        .py(px(8.0))
+        .child(
+            icon(icons::FOLDER_WITH_FILES)
+                .size(px(15.0))
+                .text_color(theme.accent),
+        )
+        .child(
+            div()
+                .min_w(px(0.0))
+                .flex_1()
+                .truncate()
+                .text_size(px(12.0))
+                .font_weight(bezel::gpui::FontWeight::MEDIUM)
+                .text_color(theme.text)
+                .child(
+                    workspace_name
+                        .clone()
+                        .unwrap_or_else(|| "Workspace".to_string()),
+                ),
+        );
+
+    if workspace_name.is_none() {
+        header = header.child(
+            div()
+                .id("mieli-sidebar-open-folder")
+                .px(px(6.0))
+                .py(px(3.0))
+                .rounded(px(Theme::control_radius()))
+                .text_size(px(11.0))
+                .text_color(theme.accent)
+                .cursor_pointer()
+                .hover(|style| style.bg(theme.element_hover))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    let _ = this.open_folder_dialog(cx);
+                }))
+                .child("Open Folder"),
+        );
     }
 
     div()
@@ -74,15 +151,7 @@ pub fn render(
         .border_r_1()
         .border_color(theme.border)
         .bg(theme.surface)
-        .child(
-            div()
-                .px(px(12.0))
-                .py(px(10.0))
-                .text_size(px(12.0))
-                .font_weight(bezel::gpui::FontWeight::SEMIBOLD)
-                .text_color(theme.text_faint)
-                .child("FILES"),
-        )
+        .child(header)
         .child(
             div()
                 .id("mieli-sidebar-scroll")
@@ -90,14 +159,22 @@ pub fn render(
                 .min_h_0()
                 .overflow_y_scroll()
                 .p(px(6.0))
-                .child(tree),
+                .child(tree)
+                .when(!empty_message.is_empty(), |content| {
+                    content.child(
+                        div()
+                            .p(px(8.0))
+                            .text_size(px(11.0))
+                            .text_color(theme.text_faint)
+                            .child(empty_message),
+                    )
+                }),
         )
-        .when(view.state.workspace_root.is_none(), |sidebar| {
-            sidebar.child(
-                div()
-                    .p(px(12.0))
-                    .text_color(theme.text_faint)
-                    .child("Open a folder to browse Markdown files."),
-            )
-        })
+}
+
+fn path_display_name(path: &Path) -> String {
+    path.file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| path.display().to_string())
 }

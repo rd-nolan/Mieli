@@ -4,4 +4,5 @@ pub mod autosave;
 pub mod config;
 pub mod file;
 pub mod state;
+pub mod theme;
 pub mod ui;

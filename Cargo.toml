@@ -3,6 +3,12 @@ name = "mieli"
 version = "0.1.0"
 edition = "2024"
 
+[package.metadata.bundle]
+name = "Mieli"
+identifier = "com.valcub.app.Mieli"
+icon = ["resources/mieli.icns"]
+short_description = "Native Markdown editor"
+
 [dependencies]
 bezel = { git = "https://github.com/crabtalk/bezel", rev = "0bd3940829787bfe7214f79c2ca779f63ac1e332" }
 editor = { package = "bezel-editor", git = "https://github.com/crabtalk/bezel", rev = "0bd3940829787bfe7214f79c2ca779f63ac1e332" }
