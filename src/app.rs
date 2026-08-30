@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeSet, HashMap, VecDeque},
     ffi::OsString,
     fmt,
     path::{Path, PathBuf},
@@ -211,6 +211,7 @@ struct ExternalChangeState<'a> {
     disk_version: &'a mut DiskVersion,
     dirty: &'a mut bool,
     disk_state: &'a mut DiskState,
+    autosave_blocked: &'a mut bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -226,6 +227,7 @@ fn apply_external_change(
 ) -> ExternalResolution {
     if *state.dirty {
         *state.disk_state = DiskState::Conflict;
+        *state.autosave_blocked = true;
         return ExternalResolution::Conflict;
     }
 
@@ -233,6 +235,7 @@ fn apply_external_change(
     *state.disk_version = version;
     *state.dirty = false;
     *state.disk_state = DiskState::Synced;
+    *state.autosave_blocked = false;
     ExternalResolution::Reloaded(disk_source)
 }
 
@@ -242,8 +245,59 @@ fn load_external_change(
     version: DiskVersion,
     reader: impl FnOnce(&Path) -> Result<String, FileError>,
 ) -> Result<ExternalResolution, FileError> {
-    let disk_source = reader(path)?;
+    let disk_source = match reader(path) {
+        Ok(source) => source,
+        Err(error) => {
+            *state.disk_state = DiskState::Conflict;
+            *state.autosave_blocked = true;
+            return Err(error);
+        }
+    };
     Ok(apply_external_change(state, disk_source, version))
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ConflictDecision {
+    Cancel,
+    KeepMine,
+}
+
+fn apply_conflict_decision(
+    disk_state: &mut DiskState,
+    autosave_blocked: &mut bool,
+    decision: ConflictDecision,
+) {
+    *disk_state = DiskState::Conflict;
+    *autosave_blocked = matches!(decision, ConflictDecision::Cancel);
+}
+
+fn autosave_is_eligible(
+    autosave_enabled: bool,
+    dirty: bool,
+    autosave_blocked: bool,
+    path_is_empty: bool,
+) -> bool {
+    autosave_enabled && dirty && !autosave_blocked && !path_is_empty
+}
+
+fn save_all_tab_is_writable(dirty: bool, autosave_blocked: bool) -> bool {
+    dirty && !autosave_blocked
+}
+
+fn queue_modal(active: &mut Option<Modal>, pending: &mut VecDeque<Modal>, modal: Modal) -> bool {
+    if *active == Some(modal) || pending.contains(&modal) {
+        return false;
+    }
+    if active.is_none() {
+        *active = Some(modal);
+    } else {
+        pending.push_back(modal);
+    }
+    true
+}
+
+fn advance_modal(active: &mut Option<Modal>, pending: &mut VecDeque<Modal>) {
+    *active = pending.pop_front();
 }
 
 fn apply_removed_event(dirty: &mut bool, disk_state: &mut DiskState) {
@@ -260,20 +314,13 @@ fn keep_deleted_open(dirty: &mut bool, disk_state: &mut DiskState) {
 enum WindowCloseAction {
     Allow,
     SaveAll,
-    RequestDecision,
 }
 
-fn window_close_action(
-    allow_quit: bool,
-    has_dirty_tabs: bool,
-    autosave_enabled: bool,
-) -> WindowCloseAction {
+fn window_close_action(allow_quit: bool, has_dirty_tabs: bool) -> WindowCloseAction {
     if allow_quit || !has_dirty_tabs {
         WindowCloseAction::Allow
-    } else if autosave_enabled {
-        WindowCloseAction::SaveAll
     } else {
-        WindowCloseAction::RequestDecision
+        WindowCloseAction::SaveAll
     }
 }
 
@@ -327,6 +374,7 @@ pub enum LifecycleError {
     NoActiveTab,
     MissingTab(TabId),
     SaveAsRequired(TabId),
+    UnresolvedExternalChange(TabId),
     PathAlreadyOpen {
         path: PathBuf,
         tab_id: TabId,
@@ -348,6 +396,11 @@ impl fmt::Display for LifecycleError {
             Self::SaveAsRequired(tab_id) => {
                 write!(f, "Tab {} must be saved with Save As first.", tab_id.0)
             }
+            Self::UnresolvedExternalChange(tab_id) => write!(
+                f,
+                "Tab {} has an unresolved external file change.",
+                tab_id.0
+            ),
             Self::PathAlreadyOpen { path, tab_id } => {
                 write!(f, "{} is already open in tab {}.", path.display(), tab_id.0)
             }
@@ -390,6 +443,7 @@ pub struct Mieli {
     pub state: AppState,
     pub modal: Option<Modal>,
     pub notification: Option<Notification>,
+    pending_modals: VecDeque<Modal>,
     watcher: Option<FileWatcherService>,
     _watcher_poll_task: gpui::Task<()>,
     autosave_tasks: HashMap<TabId, gpui::Task<()>>,
@@ -431,6 +485,7 @@ impl Mieli {
             },
             modal: None,
             notification,
+            pending_modals: VecDeque::new(),
             watcher,
             _watcher_poll_task: watcher_poll_task,
             autosave_tasks: HashMap::new(),
@@ -462,6 +517,7 @@ impl Mieli {
             dirty: false,
             disk_state: DiskState::Synced,
             autosave_generation: 0,
+            autosave_blocked: false,
         });
         self.editor_scrolls.insert(tab_id, scroll);
         self.state.active_tab = Some(tab_id);
@@ -497,6 +553,7 @@ impl Mieli {
             dirty: false,
             disk_state: DiskState::Synced,
             autosave_generation: 0,
+            autosave_blocked: false,
         });
         self.editor_scrolls.insert(tab_id, scroll);
         self.state.active_tab = Some(tab_id);
@@ -530,6 +587,9 @@ impl Mieli {
         let index = self
             .tab_index(tab_id)
             .ok_or(LifecycleError::MissingTab(tab_id))?;
+        if self.state.tabs[index].autosave_blocked {
+            return self.lifecycle_failure(LifecycleError::UnresolvedExternalChange(tab_id));
+        }
         let path = self.state.tabs[index].path.clone();
         if path.as_os_str().is_empty() {
             return self.lifecycle_failure(LifecycleError::SaveAsRequired(tab_id));
@@ -575,6 +635,7 @@ impl Mieli {
             self.notification = Some(Notification::error(error));
         }
         actions::set_file_menu(cx, self.state.recent_files.paths());
+        self.state.tabs[index].autosave_blocked = false;
         self.autosave_tasks.remove(&tab_id);
         self.clear_tab_modal(tab_id);
         self.refresh_workspace_tree();
@@ -639,8 +700,13 @@ impl Mieli {
         match close_action(self.state.tabs[index].dirty) {
             CloseAction::Remove => self.remove_tab(tab_id, cx),
             CloseAction::RequestDecision => {
-                self.modal = Some(Modal::CloseTab(tab_id));
-                cx.notify();
+                if queue_modal(
+                    &mut self.modal,
+                    &mut self.pending_modals,
+                    Modal::CloseTab(tab_id),
+                ) {
+                    cx.notify();
+                }
                 false
             }
         }
@@ -650,7 +716,6 @@ impl Mieli {
         if self.modal != Some(Modal::CloseTab(tab_id)) {
             return false;
         }
-        self.modal = None;
         self.remove_tab(tab_id, cx)
     }
 
@@ -660,7 +725,6 @@ impl Mieli {
         cx: &mut gpui::Context<Self>,
     ) -> Result<bool, LifecycleError> {
         self.save_tab(tab_id, cx)?;
-        self.modal = None;
         Ok(self.remove_tab(tab_id, cx))
     }
 
@@ -713,8 +777,23 @@ impl Mieli {
             .filter(|tab| tab.dirty)
             .map(|tab| tab.id)
             .collect::<Vec<_>>();
+        let mut first_error = None;
         for tab_id in dirty_tabs {
-            self.save_tab(tab_id, cx)?;
+            let writable = self.tab_index(tab_id).is_some_and(|index| {
+                let tab = &self.state.tabs[index];
+                save_all_tab_is_writable(tab.dirty, tab.autosave_blocked)
+            });
+            let result = if writable {
+                self.save_tab(tab_id, cx)
+            } else {
+                Err(LifecycleError::UnresolvedExternalChange(tab_id))
+            };
+            if first_error.is_none() {
+                first_error = result.err();
+            }
+        }
+        if let Some(error) = first_error {
+            return self.lifecycle_failure(error);
         }
         Ok(())
     }
@@ -738,7 +817,7 @@ impl Mieli {
         }
         let source = self.file_result(read_markdown(&path))?;
         self.replace_editor_from_disk(tab_id, source, version, cx);
-        self.modal = None;
+        self.clear_tab_modal(tab_id);
         cx.notify();
         Ok(())
     }
@@ -750,8 +829,13 @@ impl Mieli {
         let Some(index) = self.tab_index(tab_id) else {
             return false;
         };
-        self.state.tabs[index].disk_state = DiskState::Conflict;
-        self.modal = None;
+        let tab = &mut self.state.tabs[index];
+        apply_conflict_decision(
+            &mut tab.disk_state,
+            &mut tab.autosave_blocked,
+            ConflictDecision::KeepMine,
+        );
+        self.clear_tab_modal(tab_id);
         self.schedule_autosave(tab_id, cx);
         cx.notify();
         true
@@ -766,7 +850,8 @@ impl Mieli {
         };
         let tab = &mut self.state.tabs[index];
         keep_deleted_open(&mut tab.dirty, &mut tab.disk_state);
-        self.modal = None;
+        tab.autosave_blocked = false;
+        self.clear_tab_modal(tab_id);
         cx.notify();
         true
     }
@@ -775,31 +860,22 @@ impl Mieli {
         if self.modal != Some(Modal::DeletedFile(tab_id)) {
             return false;
         }
-        self.modal = None;
         self.remove_tab(tab_id, cx)
     }
 
     pub fn should_close_window(&mut self, cx: &mut gpui::Context<Self>) -> bool {
         let has_dirty_tabs = self.state.tabs.iter().any(|tab| tab.dirty);
-        match window_close_action(
-            self.allow_quit,
-            has_dirty_tabs,
-            self.state.auto_save_enabled,
-        ) {
+        match window_close_action(self.allow_quit, has_dirty_tabs) {
             WindowCloseAction::Allow => true,
             WindowCloseAction::SaveAll => {
                 if self.save_all(cx).is_ok() && !self.state.tabs.iter().any(|tab| tab.dirty) {
                     true
                 } else {
-                    self.modal = Some(Modal::Shutdown);
-                    cx.notify();
+                    if queue_modal(&mut self.modal, &mut self.pending_modals, Modal::Shutdown) {
+                        cx.notify();
+                    }
                     false
                 }
-            }
-            WindowCloseAction::RequestDecision => {
-                self.modal = Some(Modal::Shutdown);
-                cx.notify();
-                false
             }
         }
     }
@@ -807,6 +883,7 @@ impl Mieli {
     pub fn quit_anyway(&mut self, cx: &mut gpui::Context<Self>) {
         self.allow_quit = true;
         self.modal = None;
+        self.pending_modals.clear();
         cx.quit();
     }
 
@@ -831,9 +908,23 @@ impl Mieli {
     }
 
     pub fn dismiss_modal(&mut self, cx: &mut gpui::Context<Self>) {
-        if self.modal.take().is_some() {
-            cx.notify();
+        let Some(modal) = self.modal else {
+            return;
+        };
+        if let Modal::ExternalConflict(tab_id) = modal {
+            if let Some(index) = self.tab_index(tab_id) {
+                let tab = &mut self.state.tabs[index];
+                apply_conflict_decision(
+                    &mut tab.disk_state,
+                    &mut tab.autosave_blocked,
+                    ConflictDecision::Cancel,
+                );
+                tab.autosave_generation = tab.autosave_generation.saturating_add(1);
+                self.autosave_tasks.remove(&tab_id);
+            }
         }
+        advance_modal(&mut self.modal, &mut self.pending_modals);
+        cx.notify();
     }
 
     pub fn active_editor_surface(
@@ -894,7 +985,12 @@ impl Mieli {
     pub fn autosave_key_is_current(&self, key: &AutosaveKey) -> bool {
         self.tab_index(key.tab_id).is_some_and(|index| {
             let tab = &self.state.tabs[index];
-            autosave_is_current(key, tab.id, tab.autosave_generation, &tab.path, tab.dirty)
+            autosave_is_eligible(
+                self.state.auto_save_enabled,
+                tab.dirty,
+                tab.autosave_blocked,
+                tab.path.as_os_str().is_empty(),
+            ) && autosave_is_current(key, tab.id, tab.autosave_generation, &tab.path, tab.dirty)
         })
     }
 
@@ -904,7 +1000,12 @@ impl Mieli {
             return;
         };
         let tab = &self.state.tabs[index];
-        if !self.state.auto_save_enabled || !tab.dirty || tab.path.as_os_str().is_empty() {
+        if !autosave_is_eligible(
+            self.state.auto_save_enabled,
+            tab.dirty,
+            tab.autosave_blocked,
+            tab.path.as_os_str().is_empty(),
+        ) {
             self.autosave_tasks.remove(&tab_id);
             return;
         }
@@ -951,12 +1052,19 @@ impl Mieli {
     }
 
     fn clear_tab_modal(&mut self, tab_id: TabId) {
+        self.pending_modals.retain(|modal| {
+            !matches!(
+                modal,
+                Modal::CloseTab(id) | Modal::ExternalConflict(id) | Modal::DeletedFile(id)
+                    if *id == tab_id
+            )
+        });
         if matches!(
             self.modal,
             Some(Modal::CloseTab(id) | Modal::ExternalConflict(id) | Modal::DeletedFile(id))
                 if id == tab_id
         ) {
-            self.modal = None;
+            advance_modal(&mut self.modal, &mut self.pending_modals);
         }
     }
 
@@ -1164,6 +1272,7 @@ impl Mieli {
             Ok(version) => version,
             Err(error) => {
                 self.notification = Some(Notification::error(error));
+                self.enter_conflict(tab_id, cx);
                 return;
             }
         };
@@ -1183,6 +1292,7 @@ impl Mieli {
                     disk_version: &mut tab.disk_version,
                     dirty: &mut tab.dirty,
                     disk_state: &mut tab.disk_state,
+                    autosave_blocked: &mut tab.autosave_blocked,
                 },
                 &tab_path,
                 version.clone(),
@@ -1194,7 +1304,10 @@ impl Mieli {
                 self.replace_editor_from_disk(tab_id, source, version, cx)
             }
             Ok(ExternalResolution::Conflict) => self.enter_conflict(tab_id, cx),
-            Err(error) => self.notification = Some(Notification::error(error)),
+            Err(error) => {
+                self.notification = Some(Notification::error(error));
+                self.enter_conflict(tab_id, cx);
+            }
         }
     }
 
@@ -1223,6 +1336,7 @@ impl Mieli {
         tab.disk_version = version;
         tab.dirty = false;
         tab.disk_state = DiskState::Synced;
+        tab.autosave_blocked = false;
         tab.autosave_generation = tab.autosave_generation.saturating_add(1);
         self.autosave_tasks.remove(&tab_id);
         self.editor_scrolls.insert(tab_id, scroll);
@@ -1233,10 +1347,18 @@ impl Mieli {
         let Some(index) = self.tab_index(tab_id) else {
             return;
         };
-        self.state.tabs[index].disk_state = DiskState::Conflict;
+        let tab = &mut self.state.tabs[index];
+        tab.disk_state = DiskState::Conflict;
+        tab.autosave_blocked = true;
+        tab.autosave_generation = tab.autosave_generation.saturating_add(1);
         self.autosave_tasks.remove(&tab_id);
-        self.modal = Some(Modal::ExternalConflict(tab_id));
-        cx.notify();
+        if queue_modal(
+            &mut self.modal,
+            &mut self.pending_modals,
+            Modal::ExternalConflict(tab_id),
+        ) {
+            cx.notify();
+        }
     }
 
     fn enter_deleted(&mut self, tab_id: TabId, cx: &mut gpui::Context<Self>) {
@@ -1245,9 +1367,16 @@ impl Mieli {
         };
         let tab = &mut self.state.tabs[index];
         apply_removed_event(&mut tab.dirty, &mut tab.disk_state);
+        tab.autosave_blocked = true;
+        tab.autosave_generation = tab.autosave_generation.saturating_add(1);
         self.autosave_tasks.remove(&tab_id);
-        self.modal = Some(Modal::DeletedFile(tab_id));
-        cx.notify();
+        if queue_modal(
+            &mut self.modal,
+            &mut self.pending_modals,
+            Modal::DeletedFile(tab_id),
+        ) {
+            cx.notify();
+        }
     }
 
     fn watch_open_file(&mut self, path: &Path) {
@@ -1375,6 +1504,7 @@ impl gpui::Render for Mieli {
 #[cfg(test)]
 mod tests {
     use std::{
+        collections::VecDeque,
         fs,
         path::{Path, PathBuf},
         sync::atomic::{AtomicU64, Ordering},
@@ -1386,15 +1516,16 @@ mod tests {
             FileError,
             io::{canonicalize_path, disk_version, write_markdown},
         },
-        state::{DiskState, DiskVersion, FileTreeNode, TabId},
+        state::{DiskState, DiskVersion, FileTreeNode, Modal, TabId},
     };
 
     use super::{
-        CloseAction, ExternalChangeState, ExternalResolution, LifecycleError, OpenTabPaths,
-        SaveTabState, TabDirection, WindowCloseAction, adjacent_tab_id, apply_external_change,
-        apply_removed_event, apply_workspace_state, autosave_transition, close_action,
-        keep_deleted_open, load_external_change, markdown_destination, save_as_transition,
-        save_tab_transition, window_close_action,
+        CloseAction, ConflictDecision, ExternalChangeState, ExternalResolution, LifecycleError,
+        OpenTabPaths, SaveTabState, TabDirection, WindowCloseAction, adjacent_tab_id,
+        advance_modal, apply_conflict_decision, apply_external_change, apply_removed_event,
+        apply_workspace_state, autosave_is_eligible, autosave_transition, close_action,
+        keep_deleted_open, load_external_change, markdown_destination, queue_modal,
+        save_all_tab_is_writable, save_as_transition, save_tab_transition, window_close_action,
     };
 
     #[test]
@@ -1759,6 +1890,7 @@ mod tests {
         let mut version = DiskVersion::default();
         let mut dirty = false;
         let mut disk_state = DiskState::Synced;
+        let mut autosave_blocked = false;
         let disk_version = DiskVersion {
             exists: true,
             len: 3,
@@ -1772,6 +1904,7 @@ mod tests {
                 disk_version: &mut version,
                 dirty: &mut dirty,
                 disk_state: &mut disk_state,
+                autosave_blocked: &mut autosave_blocked,
             },
             String::from("# B"),
             disk_version.clone(),
@@ -1785,6 +1918,7 @@ mod tests {
         assert_eq!(version, disk_version);
         assert!(!dirty);
         assert_eq!(disk_state, DiskState::Synced);
+        assert!(!autosave_blocked);
 
         dirty = true;
         let resolution = apply_external_change(
@@ -1793,6 +1927,7 @@ mod tests {
                 disk_version: &mut version,
                 dirty: &mut dirty,
                 disk_state: &mut disk_state,
+                autosave_blocked: &mut autosave_blocked,
             },
             String::from("# Disk"),
             DiskVersion {
@@ -1808,6 +1943,7 @@ mod tests {
         assert_eq!(version, disk_version);
         assert!(dirty);
         assert_eq!(disk_state, DiskState::Conflict);
+        assert!(autosave_blocked);
     }
 
     #[test]
@@ -1827,7 +1963,7 @@ mod tests {
     }
 
     #[test]
-    fn failed_external_read_preserves_the_complete_tab_state() {
+    fn failed_external_read_blocks_autosave_without_changing_saved_identity() {
         let path = PathBuf::from("notes.md");
         let mut saved_source = String::from("# Saved");
         let mut version = DiskVersion {
@@ -1839,6 +1975,7 @@ mod tests {
         let old_version = version.clone();
         let mut dirty = true;
         let mut disk_state = DiskState::Synced;
+        let mut autosave_blocked = false;
 
         let result = load_external_change(
             ExternalChangeState {
@@ -1846,6 +1983,7 @@ mod tests {
                 disk_version: &mut version,
                 dirty: &mut dirty,
                 disk_state: &mut disk_state,
+                autosave_blocked: &mut autosave_blocked,
             },
             &path,
             DiskVersion {
@@ -1861,27 +1999,81 @@ mod tests {
         assert_eq!(saved_source, "# Saved");
         assert_eq!(version, old_version);
         assert!(dirty);
-        assert_eq!(disk_state, DiskState::Synced);
+        assert_eq!(disk_state, DiskState::Conflict);
+        assert!(autosave_blocked);
     }
 
     #[test]
-    fn window_close_saves_dirty_tabs_when_possible_and_otherwise_requests_a_decision() {
-        assert_eq!(
-            window_close_action(false, false, true),
-            WindowCloseAction::Allow
+    fn window_close_always_attempts_save_before_showing_failed_shutdown() {
+        assert_eq!(window_close_action(false, false), WindowCloseAction::Allow);
+        assert_eq!(window_close_action(false, true), WindowCloseAction::SaveAll);
+        assert_eq!(window_close_action(true, true), WindowCloseAction::Allow);
+    }
+
+    #[test]
+    fn cancelling_external_conflict_blocks_later_edits_until_keep_mine() {
+        let mut disk_state = DiskState::Conflict;
+        let mut autosave_blocked = false;
+
+        apply_conflict_decision(
+            &mut disk_state,
+            &mut autosave_blocked,
+            ConflictDecision::Cancel,
         );
-        assert_eq!(
-            window_close_action(false, true, true),
-            WindowCloseAction::SaveAll
+        assert_eq!(disk_state, DiskState::Conflict);
+        assert!(autosave_blocked);
+        assert!(!autosave_is_eligible(true, true, autosave_blocked, false));
+
+        apply_conflict_decision(
+            &mut disk_state,
+            &mut autosave_blocked,
+            ConflictDecision::KeepMine,
         );
+        assert_eq!(disk_state, DiskState::Conflict);
+        assert!(!autosave_blocked);
+        assert!(autosave_is_eligible(true, true, autosave_blocked, false));
+    }
+
+    #[test]
+    fn unresolved_external_tabs_are_not_eligible_for_save_all() {
+        assert!(!save_all_tab_is_writable(true, true));
+        assert!(save_all_tab_is_writable(true, false));
+        assert!(!save_all_tab_is_writable(false, false));
+    }
+
+    #[test]
+    fn watcher_decisions_queue_without_replacing_the_active_modal() {
+        let mut active = Some(Modal::CloseTab(TabId(1)));
+        let mut pending = VecDeque::new();
+
+        assert!(queue_modal(
+            &mut active,
+            &mut pending,
+            Modal::ExternalConflict(TabId(2))
+        ));
+        assert!(queue_modal(
+            &mut active,
+            &mut pending,
+            Modal::DeletedFile(TabId(3))
+        ));
+        assert!(!queue_modal(
+            &mut active,
+            &mut pending,
+            Modal::ExternalConflict(TabId(2))
+        ));
+        assert_eq!(active, Some(Modal::CloseTab(TabId(1))));
         assert_eq!(
-            window_close_action(false, true, false),
-            WindowCloseAction::RequestDecision
+            pending.iter().copied().collect::<Vec<_>>(),
+            vec![
+                Modal::ExternalConflict(TabId(2)),
+                Modal::DeletedFile(TabId(3))
+            ]
         );
-        assert_eq!(
-            window_close_action(true, true, false),
-            WindowCloseAction::Allow
-        );
+
+        advance_modal(&mut active, &mut pending);
+        assert_eq!(active, Some(Modal::ExternalConflict(TabId(2))));
+        advance_modal(&mut active, &mut pending);
+        assert_eq!(active, Some(Modal::DeletedFile(TabId(3))));
     }
 
     #[test]

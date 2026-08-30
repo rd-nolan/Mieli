@@ -112,7 +112,7 @@ fn external_conflict_modal(
                         .on_click(cx.listener(move |this, _, _, cx| {
                             let _ = this.reload_external_file(tab_id, cx);
                         }))
-                        .child(theme.button("Reload", ButtonStyle::Prominent, None)),
+                        .child(theme.button("Reload from Disk", ButtonStyle::Prominent, None)),
                 )
                 .child(
                     div()
@@ -192,10 +192,10 @@ fn shutdown_modal(
 ) -> bezel::gpui::AnyElement {
     let card = ui::popover::dialog_card(theme)
         .gap(px(12.0))
-        .child(ui::popover::dialog_title(theme, "Unsaved changes"))
+        .child(ui::popover::dialog_title(theme, "Save failed"))
         .child(ui::popover::dialog_body(
             theme,
-            "Some documents still have unsaved changes. Quit anyway?",
+            "Mieli could not save every document. Quit anyway and lose unsaved changes?",
         ))
         .child(
             div()

@@ -40,6 +40,7 @@ pub struct EditorTab {
     pub dirty: bool,
     pub disk_state: DiskState,
     pub autosave_generation: u64,
+    pub autosave_blocked: bool,
 }
 
 pub struct AppState {
