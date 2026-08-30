@@ -300,6 +300,44 @@ fn advance_modal(active: &mut Option<Modal>, pending: &mut VecDeque<Modal>) {
     *active = pending.pop_front();
 }
 
+fn clear_shutdown_modal(
+    active: &mut Option<Modal>,
+    pending: &mut VecDeque<Modal>,
+    has_dirty_tabs: bool,
+) {
+    if has_dirty_tabs {
+        return;
+    }
+
+    pending.retain(|modal| *modal != Modal::Shutdown);
+    if *active == Some(Modal::Shutdown) {
+        advance_modal(active, pending);
+    }
+}
+
+fn clear_tab_modal_state(
+    active: &mut Option<Modal>,
+    pending: &mut VecDeque<Modal>,
+    tab_id: TabId,
+    has_dirty_tabs: bool,
+) {
+    pending.retain(|modal| {
+        !matches!(
+            modal,
+            Modal::CloseTab(id) | Modal::ExternalConflict(id) | Modal::DeletedFile(id)
+                if *id == tab_id
+        )
+    });
+    if matches!(
+        active,
+        Some(Modal::CloseTab(id) | Modal::ExternalConflict(id) | Modal::DeletedFile(id))
+            if *id == tab_id
+    ) {
+        advance_modal(active, pending);
+    }
+    clear_shutdown_modal(active, pending, has_dirty_tabs);
+}
+
 fn apply_removed_event(dirty: &mut bool, disk_state: &mut DiskState) {
     *dirty = true;
     *disk_state = DiskState::Deleted;
@@ -795,6 +833,8 @@ impl Mieli {
         if let Some(error) = first_error {
             return self.lifecycle_failure(error);
         }
+        let has_dirty_tabs = self.has_dirty_tabs();
+        clear_shutdown_modal(&mut self.modal, &mut self.pending_modals, has_dirty_tabs);
         Ok(())
     }
 
@@ -1052,20 +1092,17 @@ impl Mieli {
     }
 
     fn clear_tab_modal(&mut self, tab_id: TabId) {
-        self.pending_modals.retain(|modal| {
-            !matches!(
-                modal,
-                Modal::CloseTab(id) | Modal::ExternalConflict(id) | Modal::DeletedFile(id)
-                    if *id == tab_id
-            )
-        });
-        if matches!(
-            self.modal,
-            Some(Modal::CloseTab(id) | Modal::ExternalConflict(id) | Modal::DeletedFile(id))
-                if id == tab_id
-        ) {
-            advance_modal(&mut self.modal, &mut self.pending_modals);
-        }
+        let has_dirty_tabs = self.has_dirty_tabs();
+        clear_tab_modal_state(
+            &mut self.modal,
+            &mut self.pending_modals,
+            tab_id,
+            has_dirty_tabs,
+        );
+    }
+
+    fn has_dirty_tabs(&self) -> bool {
+        self.state.tabs.iter().any(|tab| tab.dirty)
     }
 
     fn navigate_tab(&mut self, direction: TabDirection, cx: &mut gpui::Context<Self>) -> bool {
@@ -1523,9 +1560,10 @@ mod tests {
         CloseAction, ConflictDecision, ExternalChangeState, ExternalResolution, LifecycleError,
         OpenTabPaths, SaveTabState, TabDirection, WindowCloseAction, adjacent_tab_id,
         advance_modal, apply_conflict_decision, apply_external_change, apply_removed_event,
-        apply_workspace_state, autosave_is_eligible, autosave_transition, close_action,
-        keep_deleted_open, load_external_change, markdown_destination, queue_modal,
-        save_all_tab_is_writable, save_as_transition, save_tab_transition, window_close_action,
+        apply_workspace_state, autosave_is_eligible, autosave_transition, clear_shutdown_modal,
+        clear_tab_modal_state, close_action, keep_deleted_open, load_external_change,
+        markdown_destination, queue_modal, save_all_tab_is_writable, save_as_transition,
+        save_tab_transition, window_close_action,
     };
 
     #[test]
@@ -2001,6 +2039,7 @@ mod tests {
         assert!(dirty);
         assert_eq!(disk_state, DiskState::Conflict);
         assert!(autosave_blocked);
+        assert!(!save_all_tab_is_writable(dirty, autosave_blocked));
     }
 
     #[test]
@@ -2023,6 +2062,7 @@ mod tests {
         assert_eq!(disk_state, DiskState::Conflict);
         assert!(autosave_blocked);
         assert!(!autosave_is_eligible(true, true, autosave_blocked, false));
+        assert!(!save_all_tab_is_writable(true, autosave_blocked));
 
         apply_conflict_decision(
             &mut disk_state,
@@ -2032,6 +2072,7 @@ mod tests {
         assert_eq!(disk_state, DiskState::Conflict);
         assert!(!autosave_blocked);
         assert!(autosave_is_eligible(true, true, autosave_blocked, false));
+        assert!(save_all_tab_is_writable(true, autosave_blocked));
     }
 
     #[test]
@@ -2074,6 +2115,47 @@ mod tests {
         assert_eq!(active, Some(Modal::ExternalConflict(TabId(2))));
         advance_modal(&mut active, &mut pending);
         assert_eq!(active, Some(Modal::DeletedFile(TabId(3))));
+    }
+
+    #[test]
+    fn clearing_last_dirty_conflict_drops_a_stale_shutdown_modal() {
+        let mut active = Some(Modal::ExternalConflict(TabId(2)));
+        let mut pending = VecDeque::from([Modal::Shutdown]);
+
+        clear_tab_modal_state(&mut active, &mut pending, TabId(2), false);
+
+        assert_eq!(active, None);
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn clearing_a_dirty_conflict_keeps_shutdown_when_other_dirty_tabs_remain() {
+        let mut active = Some(Modal::ExternalConflict(TabId(2)));
+        let mut pending = VecDeque::from([Modal::Shutdown]);
+
+        clear_tab_modal_state(&mut active, &mut pending, TabId(2), true);
+
+        assert_eq!(active, Some(Modal::Shutdown));
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn successful_save_all_cleanup_removes_stale_shutdown_state() {
+        let mut active = Some(Modal::Shutdown);
+        let mut pending = VecDeque::from([Modal::DeletedFile(TabId(4))]);
+
+        clear_shutdown_modal(&mut active, &mut pending, false);
+
+        assert_eq!(active, Some(Modal::DeletedFile(TabId(4))));
+        assert!(pending.is_empty());
+
+        let mut active = Some(Modal::CloseTab(TabId(1)));
+        let mut pending = VecDeque::from([Modal::Shutdown]);
+
+        clear_shutdown_modal(&mut active, &mut pending, false);
+
+        assert_eq!(active, Some(Modal::CloseTab(TabId(1))));
+        assert!(pending.is_empty());
     }
 
     #[test]
