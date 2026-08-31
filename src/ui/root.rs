@@ -349,6 +349,41 @@ fn empty_state(
     cx: &mut Context<Mieli>,
 ) -> bezel::gpui::Stateful<bezel::gpui::Div> {
     let language = view.language();
+    let workspace_open = view.state.workspace_root.is_some();
+    let empty_hint = if workspace_open {
+        if view.state.file_tree.is_empty() {
+            TextKey::NoMarkdownFiles
+        } else {
+            TextKey::NoDocumentSelected
+        }
+    } else {
+        TextKey::WelcomeHint
+    };
+    let empty_action = if workspace_open {
+        command_button(
+            cx,
+            theme,
+            "empty-new-document",
+            language.text(TextKey::NewDocument),
+            icons::PLUS,
+            ButtonStyle::Prominent,
+            |this, cx| {
+                this.new_tab(cx);
+            },
+        )
+    } else {
+        command_button(
+            cx,
+            theme,
+            "empty-open",
+            language.text(TextKey::Open),
+            icons::FOLDER_WITH_FILES,
+            ButtonStyle::Prominent,
+            |this, cx| {
+                let _ = this.open_path_dialog(cx);
+            },
+        )
+    };
     div()
         .id("mieli-empty-state")
         .flex_1()
@@ -377,21 +412,16 @@ fn empty_state(
                         .text_size(px(13.0))
                         .text_color(theme.text_muted)
                         .text_center()
-                        .child(language.text(TextKey::WelcomeHint)),
+                        .child(language.text(empty_hint)),
                 )
-                .child(div().flex().items_center().gap(px(4.0)).mt(px(16.0)).child(
-                    command_button(
-                        cx,
-                        theme,
-                        "empty-open",
-                        language.text(TextKey::Open),
-                        icons::FOLDER_WITH_FILES,
-                        ButtonStyle::Prominent,
-                        |this, cx| {
-                            let _ = this.open_path_dialog(cx);
-                        },
-                    ),
-                )),
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(4.0))
+                        .mt(px(16.0))
+                        .child(empty_action),
+                ),
         )
 }
 

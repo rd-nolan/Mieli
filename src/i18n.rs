@@ -14,6 +14,7 @@ pub(crate) trait LocalizedMessage {
 pub(crate) enum TextKey {
     FileMenu,
     NewFile,
+    NewDocument,
     Open,
     #[cfg(not(target_os = "macos"))]
     OpenFile,
@@ -105,6 +106,7 @@ impl Language {
             Self::English => match key {
                 TextKey::FileMenu => "File",
                 TextKey::NewFile => "New File",
+                TextKey::NewDocument => "New Document",
                 TextKey::Open => "Open",
                 #[cfg(not(target_os = "macos"))]
                 TextKey::OpenFile => "File",
@@ -148,6 +150,7 @@ impl Language {
             Self::Chinese => match key {
                 TextKey::FileMenu => "文件",
                 TextKey::NewFile => "新建文件",
+                TextKey::NewDocument => "新建文档",
                 TextKey::Open => "打开",
                 #[cfg(not(target_os = "macos"))]
                 TextKey::OpenFile => "文件",
