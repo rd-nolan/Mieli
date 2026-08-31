@@ -83,11 +83,12 @@ fn tab_strip(
             .id(tab_label_element_id)
             .flex()
             .items_center()
-            .gap(px(5.0))
+            .gap(px(4.0))
             .min_w(px(64.0))
             .max_w(px(170.0))
-            .px(px(6.0))
-            .py(px(2.0))
+            .pl(px(6.0))
+            .pr(px(2.0))
+            .h(px(20.0))
             .text_size(px(12.0))
             .text_color(if selected {
                 theme.text
@@ -98,7 +99,15 @@ fn tab_strip(
                 this.switch_tab(tab_id, cx);
             }))
             .child(dirty_indicator)
-            .child(div().min_w(px(0.0)).flex_1().truncate().child(title));
+            .child(
+                div()
+                    .min_w(px(0.0))
+                    .flex_1()
+                    .flex()
+                    .items_center()
+                    .truncate()
+                    .child(title),
+            );
 
         let tab_button = div()
             .id(tab_element_id)
