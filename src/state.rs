@@ -1,6 +1,9 @@
 use std::{path::PathBuf, time::SystemTime};
 
-use crate::config::recent::RecentFiles;
+use crate::{
+    config::recent::RecentFiles,
+    i18n::{Language, LocalizedMessage},
+};
 
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct TabId(pub u64);
@@ -70,6 +73,12 @@ impl Notification {
     pub fn error(error: impl std::fmt::Display) -> Self {
         Self {
             message: error.to_string(),
+        }
+    }
+
+    pub(crate) fn localized_error(error: &impl LocalizedMessage, language: Language) -> Self {
+        Self {
+            message: error.localized_message(language),
         }
     }
 }

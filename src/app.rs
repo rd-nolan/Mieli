@@ -12,7 +12,7 @@ use gpui::prelude::*;
 use crate::{
     actions,
     autosave::{AutosaveKey, autosave_is_current},
-    config::recent::RecentFiles,
+    config::recent::{RecentFiles, RecentFilesError},
     file::{
         FileError,
         io::{
@@ -22,6 +22,7 @@ use crate::{
         scanner::scan_markdown_tree,
         watcher::{FileSystemEvent, FileWatcherService, WatchError},
     },
+    i18n::{Language, LocalizedMessage, TextKey},
     state::{
         AppState, DiskState, DiskVersion, EditorTab, FileTreeNode, Modal, Notification, TabId,
     },
@@ -426,7 +427,7 @@ pub enum LifecycleError {
     },
     MissingRecentFile {
         path: PathBuf,
-        cleanup_error: Option<String>,
+        cleanup_error: Option<RecentFilesError>,
     },
 }
 
@@ -484,6 +485,63 @@ impl fmt::Display for LifecycleError {
     }
 }
 
+impl LocalizedMessage for LifecycleError {
+    fn localized_message(&self, language: Language) -> String {
+        if matches!(language, Language::English) {
+            return self.to_string();
+        }
+
+        match self {
+            Self::File(error) => error.localized_message(language),
+            Self::Watch(error) => error.localized_message(language),
+            Self::NoActiveTab => "没有活动的编辑器标签页。".to_string(),
+            Self::MissingTab(tab_id) => format!("找不到编辑器标签页 {}。", tab_id.0),
+            Self::SaveAsRequired(tab_id) => {
+                format!("标签页 {} 需要先使用“另存为”。", tab_id.0)
+            }
+            Self::UnresolvedExternalChange(tab_id) => {
+                format!("标签页 {} 有未解决的外部文件更改。", tab_id.0)
+            }
+            Self::PathAlreadyOpen { path, tab_id } => {
+                format!("{} 已在标签页 {} 中打开。", path.display(), tab_id.0)
+            }
+            Self::MissingRecentEntry(index) => {
+                format!("最近打开的第 {} 项已不可用。", index + 1)
+            }
+            Self::SaveAll { errors } => {
+                let messages = errors
+                    .iter()
+                    .map(|error| error.localized_message(language))
+                    .collect::<Vec<_>>()
+                    .join("；");
+                format!(
+                    "无法保存所有未保存文件（{} 个失败）：{messages}",
+                    errors.len()
+                )
+            }
+            Self::MissingRecentFile {
+                path,
+                cleanup_error,
+            } => {
+                let cleanup = cleanup_error
+                    .as_ref()
+                    .map(|error| {
+                        format!(
+                            "；最近打开列表保存失败：{}",
+                            error.localized_message(language)
+                        )
+                    })
+                    .unwrap_or_default();
+                format!(
+                    "无法打开最近文件 {}：找不到文件。已移除该条记录{}。",
+                    path.display(),
+                    cleanup
+                )
+            }
+        }
+    }
+}
+
 impl std::error::Error for LifecycleError {}
 
 impl From<FileError> for LifecycleError {
@@ -499,6 +557,7 @@ impl From<WatchError> for LifecycleError {
 }
 
 pub struct Mieli {
+    language: Language,
     pub state: AppState,
     pub modal: Option<Modal>,
     pub notification: Option<Notification>,
@@ -513,14 +572,15 @@ pub struct Mieli {
 
 impl Mieli {
     pub fn new(cx: &mut gpui::Context<Self>) -> Self {
+        let language = Language::current();
         let (recent_files, recent_error) = RecentFiles::load();
         let (watcher, watcher_error) = match FileWatcherService::new() {
             Ok(watcher) => (Some(watcher), None),
             Err(error) => (None, Some(error)),
         };
         let notification = watcher_error
-            .map(Notification::error)
-            .or_else(|| recent_error.map(Notification::error));
+            .map(|error| Notification::localized_error(&error, language))
+            .or_else(|| recent_error.map(|error| Notification::localized_error(&error, language)));
 
         let watcher_poll_task = cx.spawn(async move |this, cx| {
             loop {
@@ -533,6 +593,7 @@ impl Mieli {
             }
         });
         let this = Self {
+            language,
             state: AppState {
                 workspace_root: None,
                 sidebar_visible: false,
@@ -556,14 +617,19 @@ impl Mieli {
         this
     }
 
+    pub(crate) fn language(&self) -> Language {
+        self.language
+    }
+
     pub fn new_tab(&mut self, cx: &mut gpui::Context<Self>) -> TabId {
         let tab_id = self.open_tab_paths.allocate();
         let source = String::new();
         let (editor, scroll) = Self::create_editor(tab_id, source.clone(), cx);
-        let title = if self.state.tabs.iter().any(|tab| tab.title == "Untitled") {
-            format!("Untitled {}", tab_id.0)
+        let untitled = self.language.text(TextKey::Untitled);
+        let title = if self.state.tabs.iter().any(|tab| tab.title == untitled) {
+            format!("{untitled} {}", tab_id.0)
         } else {
-            String::from("Untitled")
+            untitled.to_string()
         };
 
         self.state.tabs.push(EditorTab {
@@ -690,7 +756,7 @@ impl Mieli {
         };
 
         if let Err(error) = self.state.recent_files.record_success(&canonical) {
-            self.notification = Some(Notification::error(error));
+            self.notification = Some(Notification::localized_error(&error, self.language));
         }
         actions::set_file_menu(cx, self.state.recent_files.paths());
         self.state.tabs[index].autosave_blocked = false;
@@ -1041,12 +1107,7 @@ impl Mieli {
         match self.open_file(path.clone(), cx) {
             Ok(_) => Ok(()),
             Err(LifecycleError::File(FileError::NotFound { .. })) => {
-                let cleanup_error = self
-                    .state
-                    .recent_files
-                    .remove(&path)
-                    .err()
-                    .map(|error| error.to_string());
+                let cleanup_error = self.state.recent_files.remove(&path).err();
                 actions::set_file_menu(cx, self.state.recent_files.paths());
                 cx.notify();
                 self.lifecycle_failure(LifecycleError::MissingRecentFile {
@@ -1128,7 +1189,9 @@ impl Mieli {
         match result {
             Ok(true) => self.clear_tab_modal(key.tab_id),
             Ok(false) => return,
-            Err(error) => self.notification = Some(Notification::error(error)),
+            Err(error) => {
+                self.notification = Some(Notification::localized_error(&error, self.language))
+            }
         }
         cx.notify();
     }
@@ -1331,9 +1394,8 @@ impl Mieli {
                     changed_paths.insert(path);
                 }
                 FileSystemEvent::Error { path, message } => {
-                    let message = path.map_or(message.clone(), |path| {
-                        format!("File watcher error for {}: {message}", path.display())
-                    });
+                    let path = path.map(|path| path.display().to_string());
+                    let message = self.language.file_watcher_error(path.as_deref(), &message);
                     self.notification = Some(Notification::error(message));
                 }
             }
@@ -1359,7 +1421,7 @@ impl Mieli {
         let version = match disk_version(&tab_path) {
             Ok(version) => version,
             Err(error) => {
-                self.notification = Some(Notification::error(error));
+                self.notification = Some(Notification::localized_error(&error, self.language));
                 self.enter_conflict(tab_id, cx);
                 return;
             }
@@ -1393,7 +1455,7 @@ impl Mieli {
             }
             Ok(ExternalResolution::Conflict) => self.enter_conflict(tab_id, cx),
             Err(error) => {
-                self.notification = Some(Notification::error(error));
+                self.notification = Some(Notification::localized_error(&error, self.language));
                 self.enter_conflict(tab_id, cx);
             }
         }
@@ -1479,14 +1541,16 @@ impl Mieli {
 
         if let Some(watcher) = self.watcher.as_mut() {
             if let Err(error) = watcher.watch_file_parent(path) {
-                self.notification = Some(Notification::error(error));
+                self.notification = Some(Notification::localized_error(&error, self.language));
             }
             return;
         }
 
         match self.build_watcher(self.state.workspace_root.as_deref()) {
             Ok(watcher) => self.watcher = Some(watcher),
-            Err(error) => self.notification = Some(Notification::error(error)),
+            Err(error) => {
+                self.notification = Some(Notification::localized_error(&error, self.language))
+            }
         }
     }
 
@@ -1512,7 +1576,9 @@ impl Mieli {
     fn refresh_watcher(&mut self) {
         match self.build_watcher(self.state.workspace_root.as_deref()) {
             Ok(watcher) => self.watcher = Some(watcher),
-            Err(error) => self.notification = Some(Notification::error(error)),
+            Err(error) => {
+                self.notification = Some(Notification::localized_error(&error, self.language))
+            }
         }
     }
 
@@ -1525,7 +1591,9 @@ impl Mieli {
                 crate::ui::file_tree::preserve_expansion(&self.state.file_tree, &mut tree);
                 self.state.file_tree = tree;
             }
-            Err(error) => self.notification = Some(Notification::error(error)),
+            Err(error) => {
+                self.notification = Some(Notification::localized_error(&error, self.language))
+            }
         }
     }
 
@@ -1538,13 +1606,13 @@ impl Mieli {
 
     fn record_recent_open(&mut self, path: &Path, cx: &mut gpui::Context<Self>) {
         if let Err(error) = self.state.recent_files.record_success(path) {
-            self.notification = Some(Notification::error(error));
+            self.notification = Some(Notification::localized_error(&error, self.language));
         }
         actions::set_file_menu(cx, self.state.recent_files.paths());
     }
 
     fn lifecycle_failure<T>(&mut self, error: LifecycleError) -> Result<T, LifecycleError> {
-        self.notification = Some(Notification::error(&error));
+        self.notification = Some(Notification::localized_error(&error, self.language));
         Err(error)
     }
 }

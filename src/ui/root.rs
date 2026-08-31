@@ -10,7 +10,7 @@ use bezel::{
     },
 };
 
-use crate::app::Mieli;
+use crate::{app::Mieli, i18n::TextKey};
 
 use super::{dialogs, sidebar, tabs};
 
@@ -115,11 +115,8 @@ fn toolbar(
     theme: &Theme,
     cx: &mut Context<Mieli>,
 ) -> bezel::gpui::Stateful<bezel::gpui::Div> {
-    let sidebar_label = if view.state.sidebar_visible {
-        "Hide Sidebar (⌘⇧L)"
-    } else {
-        "Show Sidebar (⌘⇧L)"
-    };
+    let language = view.language();
+    let sidebar_label = language.sidebar_toggle(view.state.sidebar_visible);
 
     let bar = div()
         .id("mieli-toolbar")
@@ -155,7 +152,7 @@ fn toolbar(
             cx,
             theme,
             "mieli-button-Open File",
-            "Open File",
+            language.text(TextKey::OpenFile),
             icons::DOCUMENT,
             ButtonStyle::Ghost,
             |this, cx| {
@@ -166,7 +163,7 @@ fn toolbar(
             cx,
             theme,
             "mieli-button-Open Folder",
-            "Open Folder",
+            language.text(TextKey::OpenFolder),
             icons::FOLDER_WITH_FILES,
             ButtonStyle::Ghost,
             |this, cx| {
@@ -293,10 +290,11 @@ fn toolbar_separator(theme: &Theme) -> bezel::gpui::Div {
 }
 
 fn empty_state(
-    _view: &mut Mieli,
+    view: &mut Mieli,
     theme: &Theme,
     cx: &mut Context<Mieli>,
 ) -> bezel::gpui::Stateful<bezel::gpui::Div> {
+    let language = view.language();
     div()
         .id("mieli-empty-state")
         .flex_1()
@@ -334,7 +332,7 @@ fn empty_state(
                         .text_size(px(13.0))
                         .text_color(theme.text_muted)
                         .text_center()
-                        .child("Open a Markdown file or folder to start writing."),
+                        .child(language.text(TextKey::WelcomeHint)),
                 )
                 .child(
                     div()
@@ -346,7 +344,7 @@ fn empty_state(
                             cx,
                             theme,
                             "empty-open-file",
-                            "Open File",
+                            language.text(TextKey::OpenFile),
                             icons::DOCUMENT,
                             ButtonStyle::Prominent,
                             |this, cx| {
@@ -357,7 +355,7 @@ fn empty_state(
                             cx,
                             theme,
                             "empty-open-folder",
-                            "Open Folder",
+                            language.text(TextKey::OpenFolder),
                             icons::FOLDER_WITH_FILES,
                             ButtonStyle::Ghost,
                             |this, cx| {

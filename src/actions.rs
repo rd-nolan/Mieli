@@ -2,6 +2,8 @@ use std::path::{Path, PathBuf};
 
 use gpui::{App, KeyBinding, Menu, MenuItem};
 
+use crate::i18n::{Language, TextKey};
+
 gpui::actions!(
     mieli,
     [
@@ -181,6 +183,7 @@ pub fn install(cx: &mut App) {
 }
 
 pub(crate) fn set_file_menu(cx: &mut App, recent_paths: &[PathBuf]) {
+    let language = Language::current();
     let recent_items = recent_paths
         .iter()
         .take(20)
@@ -189,20 +192,21 @@ pub(crate) fn set_file_menu(cx: &mut App, recent_paths: &[PathBuf]) {
         .collect::<Vec<_>>();
     let recent_is_empty = recent_items.is_empty();
 
-    cx.set_menus([Menu::new("File").items([
-        MenuItem::action("New File", NewFile),
-        MenuItem::action("Open File", OpenFile),
-        MenuItem::action("Open Folder", OpenFolder),
-        MenuItem::submenu(Menu::new("Open Recent").items(recent_items)).disabled(recent_is_empty),
-        MenuItem::action("Refresh Tree", RefreshTree),
+    cx.set_menus([Menu::new(language.text(TextKey::FileMenu)).items([
+        MenuItem::action(language.text(TextKey::NewFile), NewFile),
+        MenuItem::action(language.text(TextKey::OpenFile), OpenFile),
+        MenuItem::action(language.text(TextKey::OpenFolder), OpenFolder),
+        MenuItem::submenu(Menu::new(language.text(TextKey::OpenRecent)).items(recent_items))
+            .disabled(recent_is_empty),
+        MenuItem::action(language.text(TextKey::RefreshFiles), RefreshTree),
         MenuItem::separator(),
-        MenuItem::action("Save", Save),
-        MenuItem::action("Save As", SaveAs),
-        MenuItem::action("Save All", SaveAll),
+        MenuItem::action(language.text(TextKey::Save), Save),
+        MenuItem::action(language.text(TextKey::SaveAs), SaveAs),
+        MenuItem::action(language.text(TextKey::SaveAll), SaveAll),
         MenuItem::separator(),
-        MenuItem::action("Close Tab", CloseTab),
+        MenuItem::action(language.text(TextKey::CloseTab), CloseTab),
         MenuItem::separator(),
-        MenuItem::action("Exit", Quit),
+        MenuItem::action(language.text(TextKey::Quit), Quit),
     ])]);
 }
 

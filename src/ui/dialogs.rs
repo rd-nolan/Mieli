@@ -7,7 +7,11 @@ use bezel::{
     },
 };
 
-use crate::{app::Mieli, state::Modal};
+use crate::{
+    app::Mieli,
+    i18n::{Language, TextKey},
+    state::Modal,
+};
 
 pub fn render(
     view: &mut Mieli,
@@ -21,7 +25,7 @@ pub fn render(
             external_conflict_modal(view, tab_id, window, theme, cx)
         }
         Some(Modal::DeletedFile(tab_id)) => deleted_file_modal(view, tab_id, window, theme, cx),
-        Some(Modal::Shutdown) => shutdown_modal(window, theme, cx),
+        Some(Modal::Shutdown) => shutdown_modal(view.language(), window, theme, cx),
         None => div().into_any_element(),
     }
 }
@@ -33,19 +37,23 @@ fn close_tab_modal(
     theme: &Theme,
     cx: &mut Context<Mieli>,
 ) -> bezel::gpui::AnyElement {
+    let language = view.language();
     let title = view
         .state
         .tabs
         .iter()
         .find(|tab| tab.id == tab_id)
         .map(|tab| tab.title.clone())
-        .unwrap_or_else(|| String::from("this tab"));
+        .unwrap_or_else(|| language.text(TextKey::ThisTab).to_string());
     let card = ui::popover::dialog_card(theme)
         .gap(px(12.0))
-        .child(ui::popover::dialog_title(theme, "Unsaved changes"))
+        .child(ui::popover::dialog_title(
+            theme,
+            language.text(TextKey::UnsavedChanges),
+        ))
         .child(ui::popover::dialog_body(
             theme,
-            format!("Save changes to {title} before closing?"),
+            language.save_changes_before_closing(&title),
         ))
         .child(
             div()
@@ -59,7 +67,11 @@ fn close_tab_modal(
                         .on_click(cx.listener(move |this, _, _, cx| {
                             let _ = this.save_and_close_tab(tab_id, cx);
                         }))
-                        .child(theme.button("Save", ButtonStyle::Prominent, None)),
+                        .child(theme.button(
+                            language.text(TextKey::Save),
+                            ButtonStyle::Prominent,
+                            None,
+                        )),
                 )
                 .child(
                     div()
@@ -67,13 +79,21 @@ fn close_tab_modal(
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.discard_close_tab(tab_id, cx);
                         }))
-                        .child(theme.button("Don't Save", ButtonStyle::Destructive, None)),
+                        .child(theme.button(
+                            language.text(TextKey::DontSave),
+                            ButtonStyle::Destructive,
+                            None,
+                        )),
                 )
                 .child(
                     div()
                         .id("close-cancel")
                         .on_click(cx.listener(|this, _, _, cx| this.dismiss_modal(cx)))
-                        .child(theme.button("Cancel", ButtonStyle::Ghost, None)),
+                        .child(theme.button(
+                            language.text(TextKey::Cancel),
+                            ButtonStyle::Ghost,
+                            None,
+                        )),
                 ),
         );
 
@@ -92,13 +112,17 @@ fn external_conflict_modal(
     theme: &Theme,
     cx: &mut Context<Mieli>,
 ) -> bezel::gpui::AnyElement {
+    let language = view.language();
     let title = tab_title(view, tab_id);
     let card = ui::popover::dialog_card(theme)
         .gap(px(12.0))
-        .child(ui::popover::dialog_title(theme, "File changed on disk"))
+        .child(ui::popover::dialog_title(
+            theme,
+            language.text(TextKey::FileChangedOnDisk),
+        ))
         .child(ui::popover::dialog_body(
             theme,
-            format!("{title} changed outside Mieli. Reload the disk version or keep your edits?"),
+            language.external_change_message(&title),
         ))
         .child(
             div()
@@ -112,7 +136,11 @@ fn external_conflict_modal(
                         .on_click(cx.listener(move |this, _, _, cx| {
                             let _ = this.reload_external_file(tab_id, cx);
                         }))
-                        .child(theme.button("Reload from Disk", ButtonStyle::Prominent, None)),
+                        .child(theme.button(
+                            language.text(TextKey::ReloadFromDisk),
+                            ButtonStyle::Prominent,
+                            None,
+                        )),
                 )
                 .child(
                     div()
@@ -120,13 +148,21 @@ fn external_conflict_modal(
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.keep_mine(tab_id, cx);
                         }))
-                        .child(theme.button("Keep Mine", ButtonStyle::Ghost, None)),
+                        .child(theme.button(
+                            language.text(TextKey::KeepMyChanges),
+                            ButtonStyle::Ghost,
+                            None,
+                        )),
                 )
                 .child(
                     div()
                         .id("conflict-cancel")
                         .on_click(cx.listener(|this, _, _, cx| this.dismiss_modal(cx)))
-                        .child(theme.button("Cancel", ButtonStyle::Ghost, None)),
+                        .child(theme.button(
+                            language.text(TextKey::Cancel),
+                            ButtonStyle::Ghost,
+                            None,
+                        )),
                 ),
         );
 
@@ -145,13 +181,17 @@ fn deleted_file_modal(
     theme: &Theme,
     cx: &mut Context<Mieli>,
 ) -> bezel::gpui::AnyElement {
+    let language = view.language();
     let title = tab_title(view, tab_id);
     let card = ui::popover::dialog_card(theme)
         .gap(px(12.0))
-        .child(ui::popover::dialog_title(theme, "File deleted on disk"))
+        .child(ui::popover::dialog_title(
+            theme,
+            language.text(TextKey::FileDeletedOnDisk),
+        ))
         .child(ui::popover::dialog_body(
             theme,
-            format!("{title} was deleted outside Mieli. Keep the editor open or close it?"),
+            language.deleted_file_message(&title),
         ))
         .child(
             div()
@@ -165,7 +205,11 @@ fn deleted_file_modal(
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.keep_deleted_file_open(tab_id, cx);
                         }))
-                        .child(theme.button("Keep Open", ButtonStyle::Prominent, None)),
+                        .child(theme.button(
+                            language.text(TextKey::KeepOpen),
+                            ButtonStyle::Prominent,
+                            None,
+                        )),
                 )
                 .child(
                     div()
@@ -173,7 +217,11 @@ fn deleted_file_modal(
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.close_deleted_file(tab_id, cx);
                         }))
-                        .child(theme.button("Close", ButtonStyle::Destructive, None)),
+                        .child(theme.button(
+                            language.text(TextKey::Close),
+                            ButtonStyle::Destructive,
+                            None,
+                        )),
                 ),
         );
 
@@ -186,16 +234,25 @@ fn deleted_file_modal(
 }
 
 fn shutdown_modal(
+    language: Language,
     window: &mut Window,
     theme: &Theme,
     cx: &mut Context<Mieli>,
 ) -> bezel::gpui::AnyElement {
     let card = ui::popover::dialog_card(theme)
         .gap(px(12.0))
-        .child(ui::popover::dialog_title(theme, "Save failed"))
+        .child(ui::popover::dialog_title(
+            theme,
+            language.text(TextKey::SaveFailed),
+        ))
         .child(ui::popover::dialog_body(
             theme,
-            "Mieli could not save every document. Quit anyway and lose unsaved changes?",
+            match language {
+                Language::English => {
+                    "Mieli couldn't save every document. Quit anyway and lose unsaved changes?"
+                }
+                Language::Chinese => "Mieli 无法保存所有文档。仍然退出并丢弃未保存的更改吗？",
+            },
         ))
         .child(
             div()
@@ -207,13 +264,21 @@ fn shutdown_modal(
                     div()
                         .id("shutdown-quit-anyway")
                         .on_click(cx.listener(|this, _, _, cx| this.quit_anyway(cx)))
-                        .child(theme.button("Quit Anyway", ButtonStyle::Destructive, None)),
+                        .child(theme.button(
+                            language.text(TextKey::QuitAnyway),
+                            ButtonStyle::Destructive,
+                            None,
+                        )),
                 )
                 .child(
                     div()
                         .id("shutdown-cancel")
                         .on_click(cx.listener(|this, _, _, cx| this.dismiss_modal(cx)))
-                        .child(theme.button("Cancel", ButtonStyle::Ghost, None)),
+                        .child(theme.button(
+                            language.text(TextKey::Cancel),
+                            ButtonStyle::Ghost,
+                            None,
+                        )),
                 ),
         );
 
@@ -231,5 +296,5 @@ fn tab_title(view: &Mieli, tab_id: crate::state::TabId) -> String {
         .iter()
         .find(|tab| tab.id == tab_id)
         .map(|tab| tab.title.clone())
-        .unwrap_or_else(|| String::from("This file"))
+        .unwrap_or_else(|| view.language().text(TextKey::ThisFile).to_string())
 }

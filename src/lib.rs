@@ -3,6 +3,7 @@ pub mod app;
 pub mod autosave;
 pub mod config;
 pub mod file;
+pub(crate) mod i18n;
 pub mod state;
 pub mod theme;
 pub mod ui;

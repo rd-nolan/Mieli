@@ -11,6 +11,8 @@ use notify::{
     event::{ModifyKind, RenameMode},
 };
 
+use crate::i18n::{Language, LocalizedMessage};
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum FileSystemEvent {
     Changed(PathBuf),
@@ -56,6 +58,42 @@ impl WatchError {
             path: path.to_path_buf(),
             operation,
             message: error.to_string(),
+        }
+    }
+}
+
+impl LocalizedMessage for WatchError {
+    fn localized_message(&self, language: Language) -> String {
+        if matches!(language, Language::English) {
+            return self.to_string();
+        }
+
+        match self {
+            Self::MissingParent { path } => {
+                format!("无法监视 {}：找不到父目录。", path.display())
+            }
+            Self::HomeDirectoryRoot { path } => {
+                format!("无法监视 {}：不会监视主目录本身。", path.display())
+            }
+            Self::Io {
+                path,
+                operation,
+                kind,
+            } => format!(
+                "无法{} {}：{}。",
+                language.operation_label(operation),
+                path.display(),
+                language.io_error_kind(*kind)
+            ),
+            Self::Notify {
+                path,
+                operation,
+                message,
+            } => format!(
+                "无法{} {}：{message}。",
+                language.operation_label(operation),
+                path.display()
+            ),
         }
     }
 }

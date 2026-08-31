@@ -1,5 +1,7 @@
 use std::{fmt, io as std_io, path::PathBuf};
 
+use crate::i18n::{Language, LocalizedMessage};
+
 pub mod io;
 pub mod scanner;
 pub mod watcher;
@@ -56,6 +58,46 @@ impl FileError {
             path: path.to_path_buf(),
             operation,
             kind: std_io::ErrorKind::Other,
+        }
+    }
+}
+
+impl LocalizedMessage for FileError {
+    fn localized_message(&self, language: Language) -> String {
+        if matches!(language, Language::English) {
+            return self.to_string();
+        }
+
+        match self {
+            Self::NotMarkdown { path } => {
+                format!(
+                    "无法打开 {}：需要 Markdown 文件（.md 或 .markdown）。",
+                    path.display()
+                )
+            }
+            Self::InvalidUtf8 { path, .. } => {
+                format!("文件 {} 不是有效的 UTF-8 编码。", path.display())
+            }
+            Self::NotFound { path, operation } => format!(
+                "无法{} {}：找不到文件。",
+                language.operation_label(operation),
+                path.display()
+            ),
+            Self::PermissionDenied { path, operation } => format!(
+                "无法{} {}：没有权限。",
+                language.operation_label(operation),
+                path.display()
+            ),
+            Self::Io {
+                path,
+                operation,
+                kind,
+            } => format!(
+                "无法{} {}：{}。",
+                language.operation_label(operation),
+                path.display(),
+                language.io_error_kind(*kind)
+            ),
         }
     }
 }

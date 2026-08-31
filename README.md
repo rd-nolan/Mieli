@@ -10,6 +10,7 @@ Mieli is a native desktop Markdown editor built on the Bezel stack. It opens ind
 - `bezel-markdown` as `markdown`: Markdown parse/serialize APIs used for the Task 9 fixed-point verification
 - `bezel-gpui` and `bezel-gpui-platform` `=0.3.4`: native windowing, rendering, actions, menus, timers, and platform bootstrap
 - `directories`: resolves the platform config directory for Recent Files persistence
+- `sys-locale`: reads the system or application language preference for UI localization
 - `notify`: watches workspace roots and file-parent directories for external create/change/remove events
 - `rfd`: native open/save file and folder dialogs
 - `serde` and `serde_json`: serialize the Recent Files JSON file; Markdown documents themselves are stored as UTF-8 text, not JSON
@@ -62,6 +63,11 @@ Mieli does not currently call `markdown::parse` and `markdown::serialize` in the
 - `Save As` writes first, then canonicalizes the destination and retargets the tab to that new canonical path.
 - If the chosen Save As destination does not already end in `.md` or `.markdown`, Mieli appends `.md`.
 - Save operations do not create missing parent directories.
+
+### Language
+
+- Mieli supports English and Simplified Chinese, follows the locale exposed by macOS, and falls back to English.
+- Set `MIELI_LANGUAGE=zh-CN` or `MIELI_LANGUAGE=en-US` to preview a language locally.
 
 ### macOS app bundle and icon
 

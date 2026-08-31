@@ -6,7 +6,10 @@ use std::{
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 
-use crate::file::io::{canonicalize_path, is_markdown_file, validate_markdown_path};
+use crate::{
+    file::io::{canonicalize_path, is_markdown_file, validate_markdown_path},
+    i18n::{Language, LocalizedMessage},
+};
 
 use super::recent_files_path;
 
@@ -259,6 +262,40 @@ impl std::fmt::Display for RecentFilesError {
                 "Could not serialize the Recent Files configuration for {}.",
                 path.display()
             ),
+        }
+    }
+}
+
+impl LocalizedMessage for RecentFilesError {
+    fn localized_message(&self, language: Language) -> String {
+        if matches!(language, Language::English) {
+            return self.to_string();
+        }
+
+        match self {
+            Self::NotMarkdown { path } => format!(
+                "无法将 {} 加入最近打开：需要 Markdown 文件（.md 或 .markdown）。",
+                path.display()
+            ),
+            Self::ConfigUnavailable => "无法确定“最近打开”配置目录。".to_string(),
+            Self::Read { path } => {
+                format!("无法读取“最近打开”配置：{}。", path.display())
+            }
+            Self::Parse { path } => {
+                format!("无法解析“最近打开”配置：{}。", path.display())
+            }
+            Self::CreateDir { path } => {
+                format!("无法创建“最近打开”配置目录：{}。", path.display())
+            }
+            Self::Write { path } => {
+                format!("无法写入“最近打开”配置：{}。", path.display())
+            }
+            Self::Canonicalize { path } => {
+                format!("无法解析最近打开路径：{}。", path.display())
+            }
+            Self::Serialize { path } => {
+                format!("无法序列化“最近打开”配置：{}。", path.display())
+            }
         }
     }
 }

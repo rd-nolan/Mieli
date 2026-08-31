@@ -10,7 +10,7 @@ use bezel::{
     },
 };
 
-use crate::app::Mieli;
+use crate::{app::Mieli, i18n::TextKey};
 
 pub fn render(
     view: &mut Mieli,
@@ -37,6 +37,7 @@ fn tab_strip(
     theme: &Theme,
     cx: &mut Context<Mieli>,
 ) -> bezel::gpui::Stateful<bezel::gpui::Div> {
+    let language = view.language();
     let active_tab = view.state.active_tab;
     let mut strip = div()
         .id("mieli-tabs")
@@ -118,7 +119,9 @@ fn tab_strip(
                     .size(px(18.0))
                     .rounded(px(Theme::control_radius()))
                     .cursor_pointer()
-                    .tooltip(|window, cx| Tooltip::text("Close tab", window, cx))
+                    .tooltip(move |window, cx| {
+                        Tooltip::text(language.text(TextKey::CloseTabTooltip), window, cx)
+                    })
                     .text_color(theme.text_faint)
                     .hover(|style| style.bg(theme.element_hover).text_color(theme.text))
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -139,7 +142,9 @@ fn tab_strip(
             .rounded(px(Theme::control_radius()))
             .text_color(theme.text_muted)
             .cursor_pointer()
-            .tooltip(|window, cx| Tooltip::text("New Document", window, cx))
+            .tooltip(move |window, cx| {
+                Tooltip::text(language.text(TextKey::NewDocumentTooltip), window, cx)
+            })
             .hover(|style| style.bg(theme.element_hover).text_color(theme.text))
             .on_click(cx.listener(|this, _, _, cx| {
                 this.new_tab(cx);
@@ -153,6 +158,7 @@ fn editor_surface(
     theme: &Theme,
     cx: &mut Context<Mieli>,
 ) -> bezel::gpui::Stateful<bezel::gpui::Div> {
+    let language = view.language();
     let Some((editor, scroll)) = view.active_editor_surface() else {
         return div()
             .id("mieli-no-editor")
@@ -168,7 +174,7 @@ fn editor_surface(
                     .size(px(24.0))
                     .text_color(theme.text_faint),
             )
-            .child("No document selected.");
+            .child(language.text(TextKey::NoDocumentSelected));
     };
 
     let empty_document = view

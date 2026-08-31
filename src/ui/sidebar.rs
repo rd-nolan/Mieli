@@ -6,7 +6,7 @@ use bezel::{
     ui::icons::{self, icon},
 };
 
-use crate::app::Mieli;
+use crate::{app::Mieli, i18n::TextKey};
 
 use super::file_tree::visible_rows;
 
@@ -25,6 +25,7 @@ pub fn render(
     let rows = visible_rows(&view.state.file_tree, active_path);
     let has_rows = !rows.is_empty();
     let workspace_name = view.state.workspace_root.as_deref().map(path_display_name);
+    let language = view.language();
 
     let mut tree = div().id("mieli-file-tree").flex().flex_col().gap(px(1.0));
     for row in rows {
@@ -91,7 +92,7 @@ pub fn render(
     }
 
     let empty_message = if view.state.workspace_root.is_some() && !has_rows {
-        "No Markdown files yet."
+        language.text(TextKey::NoMarkdownFiles)
     } else {
         ""
     };
@@ -119,7 +120,7 @@ pub fn render(
                 .child(
                     workspace_name
                         .clone()
-                        .unwrap_or_else(|| "Workspace".to_string()),
+                        .unwrap_or_else(|| language.text(TextKey::Workspace).to_string()),
                 ),
         );
 
@@ -137,7 +138,7 @@ pub fn render(
                 .on_click(cx.listener(|this, _, _, cx| {
                     let _ = this.open_folder_dialog(cx);
                 }))
-                .child("Open Folder"),
+                .child(language.text(TextKey::OpenFolder)),
         );
     }
 
