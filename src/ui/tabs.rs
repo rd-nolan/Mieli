@@ -160,7 +160,11 @@ fn tab_strip(
             .on_click(cx.listener(|this, _, _, cx| {
                 this.new_tab(cx);
             }))
-            .child(icon(icons::PLUS).size(px(13.0))),
+            .child(
+                icon(icons::PLUS)
+                    .size(px(13.0))
+                    .text_color(theme.text_muted),
+            ),
     )
 }
 
