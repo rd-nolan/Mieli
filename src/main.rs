@@ -167,6 +167,9 @@ mod tests {
         let app_store_script = include_str!("../scripts/package-macos-app-store.sh");
 
         assert!(standard_script.contains("MIELI_DMG_PATH"));
+        assert!(standard_script.contains("MIELI_APP_SIGN_IDENTITY"));
+        assert!(standard_script.contains("codesign --verify"));
+        assert!(standard_script.contains("notarytool"));
         assert!(standard_script.contains("hdiutil create"));
         assert!(app_store_script.contains("Mieli.pkg"));
         assert!(app_store_script.contains("productbuild"));
