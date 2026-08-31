@@ -118,29 +118,33 @@ fn toolbar(
     let language = view.language();
     let sidebar_label = language.sidebar_toggle(view.state.sidebar_visible);
 
+    let mut sidebar_button = toolbar_icon_button(
+        cx,
+        theme,
+        "mieli-sidebar-toggle",
+        sidebar_label,
+        icons::SIDEBAR_MINIMALISTIC_LEFT,
+        ButtonStyle::Ghost,
+        |this, cx| {
+            this.toggle_sidebar(cx);
+        },
+    );
+    if view.state.sidebar_visible {
+        sidebar_button = sidebar_button.bg(theme.element_active);
+    }
+
     let bar = div()
         .id("mieli-toolbar")
         .flex()
         .items_center()
         .flex_none()
-        .gap(px(3.0))
-        .px(px(10.0))
-        .h(px(38.0))
+        .gap(px(2.0))
+        .px(px(8.0))
+        .h(px(34.0))
         .border_b_1()
         .border_color(theme.border)
         .bg(theme.surface)
-        .child(toolbar_icon_button(
-            cx,
-            theme,
-            "mieli-sidebar-toggle",
-            sidebar_label,
-            icons::SIDEBAR_MINIMALISTIC_LEFT,
-            ButtonStyle::Ghost,
-            |this, cx| {
-                this.toggle_sidebar(cx);
-            },
-        ))
-        .child(toolbar_separator(theme))
+        .child(sidebar_button)
         .child(brand(theme))
         .child(div().flex_1());
 
@@ -179,18 +183,18 @@ fn brand(theme: &Theme) -> bezel::gpui::Stateful<bezel::gpui::Div> {
         .id("mieli-brand")
         .flex()
         .items_center()
-        .gap(px(6.0))
+        .gap(px(5.0))
         .px(px(2.0))
         .child(
             div()
-                .size(px(22.0))
-                .rounded(px(6.0))
+                .size(px(20.0))
+                .rounded(px(5.0))
                 .overflow_hidden()
-                .child(app_logo(22.0)),
+                .child(app_logo(20.0)),
         )
         .child(
             div()
-                .text_size(px(13.0))
+                .text_size(px(12.0))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(theme.text)
                 .child("Mieli"),
@@ -208,7 +212,7 @@ fn toolbar_icon_button(
 ) -> bezel::gpui::Stateful<bezel::gpui::Div> {
     let (background, foreground) = match style {
         ButtonStyle::Ghost => (None, theme.text_muted),
-        ButtonStyle::Prominent => (Some(theme.text), theme.on_solid),
+        ButtonStyle::Prominent => (Some(theme.accent), theme.on_accent),
         ButtonStyle::Destructive => (Some(theme.danger_strong), white()),
     };
 
@@ -217,14 +221,14 @@ fn toolbar_icon_button(
         .flex()
         .items_center()
         .justify_center()
-        .size(px(28.0))
+        .size(px(26.0))
         .rounded(px(Theme::control_radius()))
         .text_size(px(12.0))
         .text_color(foreground)
         .cursor_pointer()
         .tooltip(move |window, cx| Tooltip::text(label, window, cx))
         .on_click(cx.listener(move |this, _, _, cx| action(this, cx)))
-        .child(icon(icon_path).size(px(15.0)).text_color(foreground));
+        .child(icon(icon_path).size(px(14.0)).text_color(foreground));
 
     if let Some(background) = background {
         button = button.bg(background);
@@ -249,7 +253,7 @@ fn command_button(
 ) -> bezel::gpui::Stateful<bezel::gpui::Div> {
     let (background, foreground) = match style {
         ButtonStyle::Ghost => (None, theme.text_muted),
-        ButtonStyle::Prominent => (Some(theme.text), theme.on_solid),
+        ButtonStyle::Prominent => (Some(theme.accent), theme.on_accent),
         ButtonStyle::Destructive => (Some(theme.danger_strong), white()),
     };
 
@@ -257,9 +261,9 @@ fn command_button(
         .id(id)
         .flex()
         .items_center()
-        .gap(px(5.0))
-        .px(px(8.0))
-        .py(px(4.0))
+        .gap(px(4.0))
+        .px(px(7.0))
+        .py(px(3.0))
         .rounded(px(Theme::control_radius()))
         .text_size(px(12.0))
         .font_weight(if style == ButtonStyle::Prominent {
@@ -270,7 +274,7 @@ fn command_button(
         .text_color(foreground)
         .cursor_pointer()
         .on_click(cx.listener(move |this, _, _, cx| action(this, cx)))
-        .child(icon(icon_path).size(px(15.0)).text_color(foreground))
+        .child(icon(icon_path).size(px(14.0)).text_color(foreground))
         .child(label);
 
     if let Some(background) = background {
@@ -283,10 +287,6 @@ fn command_button(
             button.hover(|style| style.opacity(0.9))
         }
     }
-}
-
-fn toolbar_separator(theme: &Theme) -> bezel::gpui::Div {
-    div().mx(px(4.0)).h(px(20.0)).w(px(1.0)).bg(theme.border)
 }
 
 fn empty_state(
@@ -308,27 +308,18 @@ fn empty_state(
             div()
                 .id("mieli-welcome-card")
                 .w_full()
-                .max_w(px(520.0))
+                .max_w(px(360.0))
                 .flex()
                 .flex_col()
                 .items_center()
                 .child(
-                    div()
-                        .size(px(40.0))
-                        .rounded(px(11.0))
-                        .overflow_hidden()
-                        .child(app_logo(40.0)),
+                    icon(icons::DOCUMENT)
+                        .size(px(28.0))
+                        .text_color(theme.accent),
                 )
                 .child(
                     div()
-                        .mt(px(11.0))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_size(px(18.0))
-                        .child("Mieli"),
-                )
-                .child(
-                    div()
-                        .mt(px(5.0))
+                        .mt(px(12.0))
                         .text_size(px(13.0))
                         .text_color(theme.text_muted)
                         .text_center()
@@ -338,8 +329,8 @@ fn empty_state(
                     div()
                         .flex()
                         .items_center()
-                        .gap(px(6.0))
-                        .mt(px(18.0))
+                        .gap(px(4.0))
+                        .mt(px(16.0))
                         .child(command_button(
                             cx,
                             theme,

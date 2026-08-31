@@ -31,18 +31,18 @@ pub fn palette(appearance: Appearance) -> Theme {
 }
 
 fn light_palette(theme: &mut Theme) {
-    // Warm paper canvas, ink-like text, and a restrained lavender keyline.
-    let background = tone(0.0, 0.333333, 0.970588); // #FAF5F5
+    // Warm neutral paper canvas with one calm cobalt accent.
+    let background = tone(0.10, 0.18, 0.965); // #F8F6F4
     let ink = tone(0.145833, 0.210526, 0.074510); // #17160F
-    let strong_ink = tone(0.0, 0.0, 0.023529); // #060606
-    let body = tone(0.583333, 0.014706, 0.266667); // #434445
-    let accessible_faint = tone(0.0, 0.0, 0.400000); // #666666
-    let metadata = tone(0.150000, 0.041667, 0.529412); // #8C8B82
-    let keyline = tone(0.692308, 0.136842, 0.813725); // #CBC9D6
-    let card = tone(0.0, 0.0, 1.0); // #FFFFFF
-    let sunken = tone(0.0, 0.135135, 0.927451); // #EFEAEA
-    let chip = tone(0.0, 0.071429, 0.945098); // #F2F0F0
-    let blue = tone(0.643389, 0.832558, 0.578431); // #3A53ED
+    let strong_ink = tone(0.10, 0.10, 0.055); // #100F0E
+    let body = tone(0.10, 0.06, 0.30); // #504D4A
+    let accessible_faint = tone(0.10, 0.04, 0.42); // #706B68
+    let metadata = tone(0.10, 0.05, 0.55); // #928C88
+    let keyline = tone(0.08, 0.09, 0.83); // #D8D3D0
+    let card = tone(0.10, 0.20, 0.985); // #FCFBF9
+    let sunken = tone(0.08, 0.10, 0.92); // #ECEAE7
+    let chip = tone(0.08, 0.08, 0.95); // #F4F3F1
+    let blue = tone(0.64, 0.70, 0.60); // #5266E0
     let green = tone(0.401042, 0.680851, 0.368627); // #1E9E52
 
     theme.bg = background;
@@ -51,7 +51,7 @@ fn light_palette(theme: &mut Theme) {
     theme.surface_card = card;
     theme.surface_dialog = card;
     theme.surface_overlay = card;
-    theme.surface_raised_hover = tone(0.0, 0.115000, 0.900000);
+    theme.surface_raised_hover = tone(0.08, 0.10, 0.90); // #E8E5E2
 
     theme.element_hover = wash(ink, 0.035);
     theme.element_active = wash(ink, 0.085);
@@ -83,16 +83,16 @@ fn light_palette(theme: &mut Theme) {
 fn dark_palette(theme: &mut Theme) {
     // Warm charcoal surfaces preserve the same hierarchy after inversion.
     let background = tone(0.083333, 0.041667, 0.094118); // #191817
-    let ink = tone(0.111111, 0.257143, 0.931373); // #F2EFE9
-    let strong_ink = tone(0.100000, 0.200000, 0.950980); // #F5F3F0
-    let body = tone(0.111111, 0.020979, 0.719608); // #B9B8B6
-    let accessible_faint = tone(0.111111, 0.015000, 0.820000); // #D5D3D0
-    let metadata = tone(0.0, 0.004016, 0.488235); // #7D7C7C
-    let keyline = tone(0.690476, 0.058824, 0.233333); // #39383F
-    let keyline_strong = tone(0.690476, 0.055000, 0.290000); // #4A4848
-    let surface = tone(0.083333, 0.028571, 0.137255); // #242322
-    let raised = tone(0.055556, 0.036145, 0.162745); // #2B2928
-    let blue = tone(0.613744, 1.0, 0.586275); // #2C6FFF
+    let ink = tone(0.10, 0.12, 0.93); // #F1EFEB
+    let strong_ink = tone(0.10, 0.10, 0.95); // #F5F4F2
+    let body = tone(0.10, 0.03, 0.73); // #BEBBB6
+    let accessible_faint = tone(0.10, 0.02, 0.80); // #D1CECA
+    let metadata = tone(0.08, 0.03, 0.52); // #88837F
+    let keyline = tone(0.08, 0.04, 0.24); // #403D3A
+    let keyline_strong = tone(0.08, 0.05, 0.30); // #4F4C48
+    let surface = tone(0.08, 0.03, 0.14); // #252321
+    let raised = tone(0.08, 0.04, 0.18); // #2F2C2A
+    let blue = tone(0.63, 0.72, 0.68); // #738CE8
     let green = tone(0.398148, 0.576000, 0.490196); // #35C56D
 
     theme.bg = background;

@@ -27,7 +27,7 @@ pub fn render(
     let workspace_name = view.state.workspace_root.as_deref().map(path_display_name);
     let language = view.language();
 
-    let mut tree = div().id("mieli-file-tree").flex().flex_col().gap(px(1.0));
+    let mut tree = div().id("mieli-file-tree").flex().flex_col();
     for row in rows {
         let path = row.path.clone();
         let is_dir = row.is_dir;
@@ -44,7 +44,7 @@ pub fn render(
                 icons::ARROW_RIGHT
             };
             icon(disclosure_path)
-                .size(px(12.0))
+                .size(px(11.0))
                 .text_color(theme.text_faint)
                 .into_any_element()
         } else {
@@ -57,10 +57,10 @@ pub fn render(
             .id(id)
             .flex()
             .items_center()
-            .gap(px(6.0))
-            .pl(px(8.0 + row.depth as f32 * 14.0))
-            .pr(px(8.0))
-            .py(px(4.0))
+            .gap(px(5.0))
+            .pl(px(6.0 + row.depth as f32 * 14.0))
+            .pr(px(6.0))
+            .py(px(3.0))
             .rounded(px(Theme::control_radius()))
             .text_size(px(12.0))
             .text_color(if selected {
@@ -78,7 +78,7 @@ pub fn render(
                 }
             }))
             .child(disclosure)
-            .child(icon(icon_path).size(px(14.0)).text_color(if selected {
+            .child(icon(icon_path).size(px(13.0)).text_color(if selected {
                 theme.accent
             } else {
                 theme.text_muted
@@ -101,12 +101,14 @@ pub fn render(
         .id("mieli-sidebar-header")
         .flex()
         .items_center()
-        .gap(px(8.0))
-        .px(px(12.0))
-        .py(px(8.0))
+        .gap(px(6.0))
+        .px(px(10.0))
+        .py(px(6.0))
+        .border_b_1()
+        .border_color(theme.border)
         .child(
             icon(icons::FOLDER_WITH_FILES)
-                .size(px(15.0))
+                .size(px(14.0))
                 .text_color(theme.accent),
         )
         .child(
@@ -128,8 +130,8 @@ pub fn render(
         header = header.child(
             div()
                 .id("mieli-sidebar-open-folder")
-                .px(px(6.0))
-                .py(px(3.0))
+                .px(px(5.0))
+                .py(px(2.0))
                 .rounded(px(Theme::control_radius()))
                 .text_size(px(11.0))
                 .text_color(theme.accent)
@@ -144,7 +146,7 @@ pub fn render(
 
     div()
         .id("mieli-sidebar")
-        .w(px(240.0))
+        .w(px(224.0))
         .flex_none()
         .min_h_0()
         .flex()
@@ -159,7 +161,7 @@ pub fn render(
                 .flex_1()
                 .min_h_0()
                 .overflow_y_scroll()
-                .p(px(6.0))
+                .p(px(5.0))
                 .child(tree)
                 .when(!empty_message.is_empty(), |content| {
                     content.child(

@@ -43,10 +43,12 @@ fn tab_strip(
         .id("mieli-tabs")
         .flex()
         .items_center()
-        .gap(px(2.0))
-        .px(px(8.0))
-        .py(px(2.0))
-        .bg(theme.bg);
+        .gap(px(1.0))
+        .px(px(6.0))
+        .py(px(1.0))
+        .border_b_1()
+        .border_color(theme.border)
+        .bg(theme.surface);
 
     for tab in &view.state.tabs {
         let tab_id = tab.id;
@@ -61,7 +63,7 @@ fn tab_strip(
         let dirty = tab.dirty;
 
         let dirty_indicator = div()
-            .size(px(6.0))
+            .size(px(5.0))
             .rounded(px(99.0))
             .bg(theme.warning)
             .when(!dirty, |dot| dot.opacity(0.0));
@@ -70,11 +72,11 @@ fn tab_strip(
             .id(tab_label_element_id)
             .flex()
             .items_center()
-            .gap(px(6.0))
-            .min_w(px(72.0))
-            .max_w(px(180.0))
-            .px(px(7.0))
-            .py(px(3.0))
+            .gap(px(5.0))
+            .min_w(px(64.0))
+            .max_w(px(170.0))
+            .px(px(6.0))
+            .py(px(2.0))
             .rounded(px(Theme::control_radius()))
             .text_size(px(12.0))
             .text_color(if selected {
@@ -91,15 +93,6 @@ fn tab_strip(
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.switch_tab(tab_id, cx);
             }))
-            .child(
-                icon(icons::DOCUMENT)
-                    .size(px(13.0))
-                    .text_color(if selected {
-                        theme.accent
-                    } else {
-                        theme.text_faint
-                    }),
-            )
             .child(dirty_indicator)
             .child(div().min_w(px(0.0)).flex_1().truncate().child(title));
 
@@ -108,7 +101,7 @@ fn tab_strip(
             .flex()
             .items_center()
             .flex_none()
-            .gap(px(2.0))
+            .gap(px(1.0))
             .child(tab_label)
             .child(
                 div()
@@ -116,7 +109,7 @@ fn tab_strip(
                     .flex()
                     .items_center()
                     .justify_center()
-                    .size(px(18.0))
+                    .size(px(16.0))
                     .rounded(px(Theme::control_radius()))
                     .cursor_pointer()
                     .tooltip(move |window, cx| {
@@ -127,7 +120,7 @@ fn tab_strip(
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.close_tab(close_id, cx);
                     }))
-                    .child(icon(icons::CLOSE).size(px(12.0))),
+                    .child(icon(icons::CLOSE).size(px(11.0))),
             );
         strip = strip.child(tab_button);
     }
@@ -138,7 +131,7 @@ fn tab_strip(
             .flex()
             .items_center()
             .justify_center()
-            .size(px(24.0))
+            .size(px(22.0))
             .rounded(px(Theme::control_radius()))
             .text_color(theme.text_muted)
             .cursor_pointer()
@@ -149,7 +142,7 @@ fn tab_strip(
             .on_click(cx.listener(|this, _, _, cx| {
                 this.new_tab(cx);
             }))
-            .child(icon(icons::PLUS).size(px(14.0))),
+            .child(icon(icons::PLUS).size(px(13.0))),
     )
 }
 
@@ -167,11 +160,11 @@ fn editor_surface(
             .justify_center()
             .flex()
             .flex_col()
-            .gap(px(8.0))
+            .gap(px(6.0))
             .text_color(theme.text_muted)
             .child(
                 icon(icons::DOCUMENT)
-                    .size(px(24.0))
+                    .size(px(22.0))
                     .text_color(theme.text_faint),
             )
             .child(language.text(TextKey::NoDocumentSelected));
@@ -207,14 +200,14 @@ fn editor_surface(
         .min_h_0()
         .overflow_y_scroll()
         .track_scroll(&scroll)
-        .px(px(32.0))
-        .py(px(28.0))
+        .px(px(24.0))
+        .py(px(24.0))
         .bg(theme.bg)
         .child(
             div()
                 .id("mieli-editor-page")
                 .w_full()
-                .max_w(px(820.0))
+                .max_w(px(760.0))
                 .mx_auto()
                 .child(editor_content),
         )
