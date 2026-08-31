@@ -80,7 +80,7 @@ fn tab_strip(
             .max_w(px(170.0))
             .px(px(6.0))
             .py(px(2.0))
-            .rounded(px(Theme::control_radius()))
+            .rounded_t(px(Theme::control_radius()))
             .text_size(px(12.0))
             .text_color(if selected {
                 theme.text
