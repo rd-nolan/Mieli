@@ -1,7 +1,10 @@
-use std::path::Path;
+use std::{path::Path, time::Duration};
 
 use bezel::{
-    gpui::{Context, ElementId, IntoElement, SharedString, div, prelude::*, px},
+    gpui::{
+        Animation, AnimationExt, Context, ElementId, IntoElement, SharedString, div,
+        ease_out_quint, prelude::*, px,
+    },
     theme::Theme,
     ui::icons::{self, icon},
 };
@@ -38,20 +41,26 @@ pub fn render(
             icons::DOCUMENT
         };
         let disclosure = if is_dir {
-            let disclosure_path = if row.expanded {
-                icons::ARROW_DOWN
-            } else {
-                icons::ARROW_RIGHT
-            };
-            icon(disclosure_path)
+            let disclosure_id = ElementId::Name(SharedString::from(format!(
+                "tree-disclosure-{}-{}",
+                path.display(),
+                row.expanded
+            )));
+            icon(disclosure_icon_path(row.expanded))
                 .size(px(11.0))
                 .text_color(theme.text_faint)
+                .with_animation(
+                    disclosure_id,
+                    Animation::new(Duration::from_millis(140)).with_easing(ease_out_quint()),
+                    |icon, delta| icon.opacity(delta),
+                )
                 .into_any_element()
         } else {
             div().size(px(12.0)).into_any_element()
         };
         let label = row.name.trim_end_matches('/').to_string();
         let id = ElementId::Name(SharedString::from(format!("tree-{}", path.display())));
+        let callback_path = path.clone();
 
         let mut item = div()
             .id(id)
@@ -72,9 +81,9 @@ pub fn render(
             .hover(|style| style.bg(theme.element_hover))
             .on_click(cx.listener(move |this, _, _, cx| {
                 if is_dir {
-                    this.toggle_tree_path(&path, cx);
+                    this.toggle_tree_path(&callback_path, cx);
                 } else {
-                    let _ = this.open_file(path.clone(), cx);
+                    let _ = this.open_file(callback_path.clone(), cx);
                 }
             }))
             .child(disclosure)
@@ -88,7 +97,16 @@ pub fn render(
         if is_dir {
             item = item.font_weight(bezel::gpui::FontWeight::MEDIUM);
         }
-        tree = tree.child(item);
+        let row_animation_id = ElementId::Name(SharedString::from(format!(
+            "tree-row-{}-{}",
+            path.display(),
+            is_dir && row.expanded
+        )));
+        tree = tree.child(item.with_animation(
+            row_animation_id,
+            Animation::new(Duration::from_millis(160)).with_easing(ease_out_quint()),
+            |item, delta| item.opacity(delta),
+        ));
     }
 
     let empty_message = if view.state.workspace_root.is_some() && !has_rows {
@@ -180,4 +198,25 @@ fn path_display_name(path: &Path) -> String {
         .map(|name| name.to_string_lossy().into_owned())
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| path.display().to_string())
+}
+
+fn disclosure_icon_path(expanded: bool) -> &'static str {
+    if expanded {
+        icons::ARROW_DOWN
+    } else {
+        icons::ARROW_RIGHT
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bezel::ui::icons;
+
+    use super::disclosure_icon_path;
+
+    #[test]
+    fn disclosure_icon_changes_with_expansion_state() {
+        assert_eq!(disclosure_icon_path(true), icons::ARROW_DOWN);
+        assert_eq!(disclosure_icon_path(false), icons::ARROW_RIGHT);
+    }
 }

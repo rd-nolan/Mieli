@@ -65,20 +65,49 @@ pub enum Modal {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub enum NotificationKind {
+    Error,
+    Success,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Notification {
     pub message: String,
+    pub kind: NotificationKind,
 }
 
 impl Notification {
     pub fn error(error: impl std::fmt::Display) -> Self {
         Self {
             message: error.to_string(),
+            kind: NotificationKind::Error,
         }
     }
 
     pub(crate) fn localized_error(error: &impl LocalizedMessage, language: Language) -> Self {
         Self {
             message: error.localized_message(language),
+            kind: NotificationKind::Error,
         }
+    }
+
+    pub fn success(message: impl std::fmt::Display) -> Self {
+        Self {
+            message: message.to_string(),
+            kind: NotificationKind::Success,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Notification, NotificationKind};
+
+    #[test]
+    fn success_notifications_use_the_success_kind() {
+        let notification = Notification::success("Path copied");
+
+        assert_eq!(notification.kind, NotificationKind::Success);
+        assert_eq!(notification.message, "Path copied");
     }
 }

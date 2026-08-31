@@ -10,7 +10,7 @@ use bezel::{
     },
 };
 
-use crate::{app::Mieli, i18n::TextKey};
+use crate::{app::Mieli, i18n::TextKey, state::NotificationKind};
 
 use super::{dialogs, sidebar, tabs};
 
@@ -51,56 +51,71 @@ pub fn render(
         .child(body);
 
     if let Some(notification) = view.notification.as_ref() {
-        root = root.child(
-            div()
-                .id("mieli-notification")
-                .absolute()
-                .right(px(18.0))
-                .bottom(px(18.0))
-                .max_w(px(380.0))
-                .flex()
-                .items_center()
-                .gap(px(8.0))
-                .p(px(10.0))
-                .rounded(px(Theme::panel_radius()))
-                .border_1()
-                .border_color(theme.warning)
-                .bg(theme.warning_muted)
-                .text_color(theme.text)
-                .child(
-                    icon(icons::DANGER_TRIANGLE)
-                        .size(px(17.0))
-                        .text_color(theme.warning),
-                )
-                .child(
-                    div()
-                        .id("mieli-notification-message")
-                        .min_w(px(0.0))
-                        .flex_1()
-                        .text_size(px(13.0))
-                        .truncate()
-                        .child(notification.message.clone()),
-                )
-                .child(
-                    div()
-                        .id("mieli-dismiss-notification")
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .size(px(22.0))
-                        .rounded(px(Theme::control_radius()))
-                        .cursor_pointer()
-                        .hover(|style| style.bg(theme.element_hover))
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.dismiss_notification(cx);
-                        }))
-                        .child(
-                            icon(icons::CLOSE)
-                                .size(px(13.0))
-                                .text_color(theme.text_muted),
-                        ),
-                ),
-        );
+        let is_success = matches!(notification.kind, NotificationKind::Success);
+        let status_icon = if is_success {
+            icons::CHECK
+        } else {
+            icons::DANGER_TRIANGLE
+        };
+        let status_color = if is_success {
+            theme.success
+        } else {
+            theme.warning
+        };
+        let status_background = if is_success {
+            theme.success_muted
+        } else {
+            theme.warning_muted
+        };
+        let mut notification_toast = div()
+            .id("mieli-notification")
+            .absolute()
+            .right(px(18.0))
+            .bottom(px(18.0))
+            .max_w(px(380.0))
+            .flex()
+            .items_center()
+            .gap(px(8.0))
+            .p(px(10.0))
+            .rounded(px(Theme::panel_radius()))
+            .border_1()
+            .border_color(status_color)
+            .bg(status_background)
+            .text_color(theme.text)
+            .child(icon(status_icon).size(px(17.0)).text_color(status_color))
+            .child(
+                div()
+                    .id("mieli-notification-message")
+                    .min_w(px(0.0))
+                    .flex_1()
+                    .text_size(px(13.0))
+                    .truncate()
+                    .child(notification.message.clone()),
+            );
+
+        if !is_success {
+            notification_toast = notification_toast.child(
+                div()
+                    .id("mieli-dismiss-notification")
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .size(px(22.0))
+                    .rounded(px(Theme::control_radius()))
+                    .cursor_pointer()
+                    .hover(|style| style.bg(theme.element_hover))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.dismiss_notification(cx);
+                    }))
+                    .child(
+                        icon(icons::CLOSE)
+                            .size(px(13.0))
+                            .text_color(theme.text_muted),
+                    ),
+            );
+        }
+
+        root = root.child(notification_toast);
     }
 
     if view.modal.is_some() {

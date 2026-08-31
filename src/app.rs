@@ -1128,6 +1128,21 @@ impl Mieli {
             return false;
         };
         cx.write_to_clipboard(gpui::ClipboardItem::new_string(path.display().to_string()));
+        let notification = Notification::success(self.language.text(TextKey::PathCopied));
+        self.notification = Some(notification.clone());
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(Duration::from_millis(1500))
+                .await;
+            let _ = this.update(cx, |view, cx| {
+                if view.notification.as_ref() == Some(&notification) {
+                    view.notification = None;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
         true
     }
 
