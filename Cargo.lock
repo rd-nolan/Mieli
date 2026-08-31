@@ -3581,6 +3581,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sys-locale",
+ "url",
 ]
 
 [[package]]
