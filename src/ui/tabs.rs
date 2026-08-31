@@ -84,10 +84,10 @@ fn tab_strip(
             .flex()
             .items_center()
             .gap(px(4.0))
-            .min_w(px(64.0))
+            .min_w(px(48.0))
             .max_w(px(170.0))
             .pl(px(6.0))
-            .pr(px(2.0))
+            .pr(px(0.0))
             .h(px(20.0))
             .text_size(px(12.0))
             .text_color(if selected {
@@ -139,7 +139,7 @@ fn tab_strip(
                         Tooltip::text(language.text(TextKey::CloseTabTooltip), window, cx)
                     })
                     .text_color(theme.text_muted)
-                    .hover(|style| style.bg(theme.element_hover).text_color(theme.text))
+                    .hover(|style| style.text_color(theme.text))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.close_tab(close_id, cx);
                     }))
