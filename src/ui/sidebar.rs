@@ -129,7 +129,7 @@ pub fn render(
     if workspace_name.is_none() {
         header = header.child(
             div()
-                .id("mieli-sidebar-open-folder")
+                .id("mieli-sidebar-open")
                 .px(px(5.0))
                 .py(px(2.0))
                 .rounded(px(Theme::control_radius()))
@@ -138,9 +138,9 @@ pub fn render(
                 .cursor_pointer()
                 .hover(|style| style.bg(theme.element_hover))
                 .on_click(cx.listener(|this, _, _, cx| {
-                    let _ = this.open_folder_dialog(cx);
+                    let _ = this.open_path_dialog(cx);
                 }))
-                .child(language.text(TextKey::OpenFolder)),
+                .child(language.text(TextKey::Open)),
         );
     }
 

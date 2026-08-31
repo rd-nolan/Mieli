@@ -14,8 +14,13 @@ pub(crate) trait LocalizedMessage {
 pub(crate) enum TextKey {
     FileMenu,
     NewFile,
+    Open,
+    #[cfg(not(target_os = "macos"))]
     OpenFile,
+    #[cfg(not(target_os = "macos"))]
     OpenFolder,
+    #[cfg(not(target_os = "macos"))]
+    ChooseOpenTarget,
     OpenRecent,
     RefreshFiles,
     Save,
@@ -45,6 +50,7 @@ pub(crate) enum TextKey {
     QuitAnyway,
     ThisTab,
     ThisFile,
+    SwitchLanguage,
 }
 
 impl Language {
@@ -97,8 +103,13 @@ impl Language {
             Self::English => match key {
                 TextKey::FileMenu => "File",
                 TextKey::NewFile => "New File",
-                TextKey::OpenFile => "Open File",
-                TextKey::OpenFolder => "Open Folder",
+                TextKey::Open => "Open",
+                #[cfg(not(target_os = "macos"))]
+                TextKey::OpenFile => "File",
+                #[cfg(not(target_os = "macos"))]
+                TextKey::OpenFolder => "Folder",
+                #[cfg(not(target_os = "macos"))]
+                TextKey::ChooseOpenTarget => "Choose a Markdown file or folder.",
                 TextKey::OpenRecent => "Open Recent",
                 TextKey::RefreshFiles => "Refresh Tree",
                 TextKey::Save => "Save",
@@ -128,12 +139,18 @@ impl Language {
                 TextKey::QuitAnyway => "Quit Anyway",
                 TextKey::ThisTab => "this tab",
                 TextKey::ThisFile => "This file",
+                TextKey::SwitchLanguage => "Switch to Chinese",
             },
             Self::Chinese => match key {
                 TextKey::FileMenu => "文件",
                 TextKey::NewFile => "新建文件",
-                TextKey::OpenFile => "打开文件",
-                TextKey::OpenFolder => "打开文件夹",
+                TextKey::Open => "打开",
+                #[cfg(not(target_os = "macos"))]
+                TextKey::OpenFile => "文件",
+                #[cfg(not(target_os = "macos"))]
+                TextKey::OpenFolder => "文件夹",
+                #[cfg(not(target_os = "macos"))]
+                TextKey::ChooseOpenTarget => "选择 Markdown 文件或文件夹。",
                 TextKey::OpenRecent => "最近打开",
                 TextKey::RefreshFiles => "刷新文件树",
                 TextKey::Save => "保存",
@@ -163,7 +180,22 @@ impl Language {
                 TextKey::QuitAnyway => "仍然退出",
                 TextKey::ThisTab => "该标签页",
                 TextKey::ThisFile => "此文件",
+                TextKey::SwitchLanguage => "切换为英文",
             },
+        }
+    }
+
+    pub(crate) const fn toggle(self) -> Self {
+        match self {
+            Self::English => Self::Chinese,
+            Self::Chinese => Self::English,
+        }
+    }
+
+    pub(crate) const fn short_label(self) -> &'static str {
+        match self {
+            Self::English => "EN",
+            Self::Chinese => "中",
         }
     }
 
@@ -249,5 +281,25 @@ impl Language {
             std::io::ErrorKind::InvalidData => "数据无效".to_string(),
             _ => format!("系统错误（{kind}）"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Language, TextKey};
+
+    #[test]
+    fn language_toggle_updates_labels_and_switch_hint() {
+        assert_eq!(Language::English.short_label(), "EN");
+        assert_eq!(Language::English.toggle(), Language::Chinese);
+        assert_eq!(
+            Language::English.toggle().text(TextKey::SwitchLanguage),
+            "切换为英文"
+        );
+        assert_eq!(Language::Chinese.toggle(), Language::English);
+        assert_eq!(
+            Language::Chinese.toggle().text(TextKey::SwitchLanguage),
+            "Switch to Chinese"
+        );
     }
 }

@@ -155,27 +155,44 @@ fn toolbar(
         .child(toolbar_icon_button(
             cx,
             theme,
-            "mieli-button-Open File",
-            language.text(TextKey::OpenFile),
-            icons::DOCUMENT,
-            ButtonStyle::Ghost,
-            |this, cx| {
-                let _ = this.open_file_dialog(cx);
-            },
-        ))
-        .child(toolbar_icon_button(
-            cx,
-            theme,
-            "mieli-button-Open Folder",
-            language.text(TextKey::OpenFolder),
+            "mieli-button-open",
+            language.text(TextKey::Open),
             icons::FOLDER_WITH_FILES,
             ButtonStyle::Ghost,
             |this, cx| {
-                let _ = this.open_folder_dialog(cx);
+                let _ = this.open_path_dialog(cx);
             },
-        ));
+        ))
+        .child(language_button(view, theme, cx));
 
     bar.child(actions)
+}
+
+fn language_button(
+    view: &mut Mieli,
+    theme: &Theme,
+    cx: &mut Context<Mieli>,
+) -> bezel::gpui::Stateful<bezel::gpui::Div> {
+    let language = view.language();
+    div()
+        .id("mieli-language-toggle")
+        .flex()
+        .items_center()
+        .justify_center()
+        .min_w(px(30.0))
+        .h(px(26.0))
+        .px(px(5.0))
+        .rounded(px(Theme::control_radius()))
+        .font_weight(FontWeight::MEDIUM)
+        .text_size(px(11.0))
+        .text_color(theme.text_muted)
+        .cursor_pointer()
+        .tooltip(move |window, cx| {
+            Tooltip::text(language.text(TextKey::SwitchLanguage), window, cx)
+        })
+        .hover(|style| style.bg(theme.element_hover).text_color(theme.text))
+        .on_click(cx.listener(|this, _, _, cx| this.toggle_language(cx)))
+        .child(language.short_label())
 }
 
 fn brand(theme: &Theme) -> bezel::gpui::Stateful<bezel::gpui::Div> {
@@ -325,35 +342,19 @@ fn empty_state(
                         .text_center()
                         .child(language.text(TextKey::WelcomeHint)),
                 )
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(4.0))
-                        .mt(px(16.0))
-                        .child(command_button(
-                            cx,
-                            theme,
-                            "empty-open-file",
-                            language.text(TextKey::OpenFile),
-                            icons::DOCUMENT,
-                            ButtonStyle::Prominent,
-                            |this, cx| {
-                                let _ = this.open_file_dialog(cx);
-                            },
-                        ))
-                        .child(command_button(
-                            cx,
-                            theme,
-                            "empty-open-folder",
-                            language.text(TextKey::OpenFolder),
-                            icons::FOLDER_WITH_FILES,
-                            ButtonStyle::Ghost,
-                            |this, cx| {
-                                let _ = this.open_folder_dialog(cx);
-                            },
-                        )),
-                ),
+                .child(div().flex().items_center().gap(px(4.0)).mt(px(16.0)).child(
+                    command_button(
+                        cx,
+                        theme,
+                        "empty-open",
+                        language.text(TextKey::Open),
+                        icons::FOLDER_WITH_FILES,
+                        ButtonStyle::Prominent,
+                        |this, cx| {
+                            let _ = this.open_path_dialog(cx);
+                        },
+                    ),
+                )),
         )
 }
 

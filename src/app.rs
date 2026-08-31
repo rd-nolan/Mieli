@@ -90,6 +90,14 @@ fn markdown_destination(path: &Path) -> PathBuf {
     PathBuf::from(destination)
 }
 
+fn workspace_root_for_path(path: &Path) -> Option<PathBuf> {
+    if path.is_dir() {
+        Some(path.to_path_buf())
+    } else {
+        path.parent().map(Path::to_path_buf)
+    }
+}
+
 fn apply_save_as_identity(path: &mut PathBuf, title: &mut String, destination: PathBuf) {
     *title = destination
         .file_name()
@@ -613,12 +621,18 @@ impl Mieli {
             open_tab_paths: OpenTabPaths::default(),
             allow_quit: false,
         };
-        actions::set_file_menu(cx, this.state.recent_files.paths());
+        actions::set_file_menu(cx, this.state.recent_files.paths(), this.language);
         this
     }
 
     pub(crate) fn language(&self) -> Language {
         self.language
+    }
+
+    pub fn toggle_language(&mut self, cx: &mut gpui::Context<Self>) {
+        self.language = self.language.toggle();
+        actions::set_file_menu(cx, self.state.recent_files.paths(), self.language);
+        cx.notify();
     }
 
     pub fn new_tab(&mut self, cx: &mut gpui::Context<Self>) -> TabId {
@@ -691,6 +705,22 @@ impl Mieli {
         Ok(tab_id)
     }
 
+    pub fn open_path(
+        &mut self,
+        path: PathBuf,
+        cx: &mut gpui::Context<Self>,
+    ) -> Result<(), LifecycleError> {
+        let canonical = self.file_result(canonicalize_path(&path))?;
+        if canonical.is_dir() {
+            return self.open_folder(canonical, cx);
+        }
+
+        if let Some(parent) = workspace_root_for_path(&canonical) {
+            self.open_folder(parent, cx)?;
+        }
+        self.open_file(canonical, cx).map(|_| ())
+    }
+
     pub fn editor_changed(&mut self, tab_id: TabId, cx: &mut gpui::Context<Self>) {
         let Some(index) = self.tab_index(tab_id) else {
             return;
@@ -758,7 +788,7 @@ impl Mieli {
         if let Err(error) = self.state.recent_files.record_success(&canonical) {
             self.notification = Some(Notification::localized_error(&error, self.language));
         }
-        actions::set_file_menu(cx, self.state.recent_files.paths());
+        actions::set_file_menu(cx, self.state.recent_files.paths(), self.language);
         self.state.tabs[index].autosave_blocked = false;
         self.autosave_tasks.remove(&tab_id);
         self.clear_tab_modal(tab_id);
@@ -789,6 +819,7 @@ impl Mieli {
             canonical,
             tree,
         );
+        self.state.sidebar_visible = true;
         self.watcher = Some(watcher);
         cx.notify();
         Ok(())
@@ -859,31 +890,35 @@ impl Mieli {
         self.save_tab(tab_id, cx)
     }
 
-    pub fn open_file_dialog(&mut self, cx: &mut gpui::Context<Self>) -> Result<(), LifecycleError> {
-        cx.spawn(async move |this, cx| {
-            let Some(path) = rfd::FileDialog::new()
-                .add_filter("Markdown", &["md", "markdown"])
-                .pick_file()
-            else {
-                return;
-            };
-            let _ = this.update(cx, |view, cx| view.open_file(path, cx).map(|_| ()));
-        })
-        .detach();
-        Ok(())
-    }
+    pub fn open_path_dialog(&mut self, cx: &mut gpui::Context<Self>) -> Result<(), LifecycleError> {
+        #[cfg(target_os = "macos")]
+        {
+            use std::cell::RefCell;
+            use std::rc::Rc;
 
-    pub fn open_folder_dialog(
-        &mut self,
-        cx: &mut gpui::Context<Self>,
-    ) -> Result<(), LifecycleError> {
-        cx.spawn(async move |this, cx| {
-            let Some(path) = rfd::FileDialog::new().pick_folder() else {
-                return;
-            };
-            let _ = this.update(cx, |view, cx| view.open_folder(path, cx));
-        })
-        .detach();
+            let view = cx.entity().downgrade();
+            let async_cx = Rc::new(RefCell::new(cx.to_async()));
+            crate::file::dialog::begin_pick_path(move |path| {
+                let Some(path) = path else {
+                    return;
+                };
+                let mut async_cx = async_cx.borrow_mut();
+                let _ = view.update(&mut *async_cx, |view, cx| view.open_path(path, cx));
+            });
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            let language = self.language;
+            cx.spawn(async move |this, cx| {
+                let Some(path) = crate::file::dialog::pick_path(language) else {
+                    return;
+                };
+                let _ = this.update(cx, |view, cx| view.open_path(path, cx));
+            })
+            .detach();
+        }
+
         Ok(())
     }
 
@@ -1108,7 +1143,7 @@ impl Mieli {
             Ok(_) => Ok(()),
             Err(LifecycleError::File(FileError::NotFound { .. })) => {
                 let cleanup_error = self.state.recent_files.remove(&path).err();
-                actions::set_file_menu(cx, self.state.recent_files.paths());
+                actions::set_file_menu(cx, self.state.recent_files.paths(), self.language);
                 cx.notify();
                 self.lifecycle_failure(LifecycleError::MissingRecentFile {
                     path,
@@ -1216,13 +1251,13 @@ impl Mieli {
             .is_some_and(|tab_id| self.switch_tab(tab_id, cx))
     }
 
-    fn on_open_file(
+    fn on_open_path(
         &mut self,
-        _: &actions::OpenFile,
+        _: &actions::OpenPath,
         _: &mut gpui::Window,
         cx: &mut gpui::Context<Self>,
     ) {
-        let _ = self.open_file_dialog(cx);
+        let _ = self.open_path_dialog(cx);
     }
 
     fn on_new_file(
@@ -1232,15 +1267,6 @@ impl Mieli {
         cx: &mut gpui::Context<Self>,
     ) {
         self.new_tab(cx);
-    }
-
-    fn on_open_folder(
-        &mut self,
-        _: &actions::OpenFolder,
-        _: &mut gpui::Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        let _ = self.open_folder_dialog(cx);
     }
 
     fn on_save(&mut self, _: &actions::Save, _: &mut gpui::Window, cx: &mut gpui::Context<Self>) {
@@ -1608,7 +1634,7 @@ impl Mieli {
         if let Err(error) = self.state.recent_files.record_success(path) {
             self.notification = Some(Notification::localized_error(&error, self.language));
         }
-        actions::set_file_menu(cx, self.state.recent_files.paths());
+        actions::set_file_menu(cx, self.state.recent_files.paths(), self.language);
     }
 
     fn lifecycle_failure<T>(&mut self, error: LifecycleError) -> Result<T, LifecycleError> {
@@ -1631,8 +1657,7 @@ impl gpui::Render for Mieli {
     ) -> impl gpui::IntoElement {
         crate::ui::root::render(self, window, cx)
             .on_action(cx.listener(Self::on_new_file))
-            .on_action(cx.listener(Self::on_open_file))
-            .on_action(cx.listener(Self::on_open_folder))
+            .on_action(cx.listener(Self::on_open_path))
             .on_action(cx.listener(Self::on_save))
             .on_action(cx.listener(Self::on_save_as))
             .on_action(cx.listener(Self::on_save_all))
@@ -1690,7 +1715,7 @@ mod tests {
         apply_workspace_state, autosave_is_eligible, autosave_transition, clear_shutdown_modal,
         clear_tab_modal_state, close_action, keep_deleted_open, load_external_change,
         markdown_destination, queue_modal, save_all_tab_is_writable, save_as_transition,
-        save_tab_transition, window_close_action,
+        save_tab_transition, window_close_action, workspace_root_for_path,
     };
 
     #[test]
@@ -1733,6 +1758,25 @@ mod tests {
 
         assert_eq!(first, second);
         assert_eq!(paths.len(), 1);
+    }
+
+    #[test]
+    fn workspace_root_for_path_keeps_directories_and_uses_file_parents() {
+        let directory = TestDirectory::new();
+        let file = directory.path().join("README.md");
+        fs::write(&file, "# Mieli").unwrap();
+
+        let canonical_directory = canonicalize_path(directory.path()).unwrap();
+        let canonical_file = canonicalize_path(&file).unwrap();
+
+        assert_eq!(
+            workspace_root_for_path(&canonical_directory),
+            Some(canonical_directory)
+        );
+        assert_eq!(
+            workspace_root_for_path(&canonical_file),
+            canonical_file.parent().map(Path::to_path_buf)
+        );
     }
 
     #[test]

@@ -8,8 +8,7 @@ gpui::actions!(
     mieli,
     [
         NewFile,
-        OpenFile,
-        OpenFolder,
+        OpenPath,
         Save,
         SaveAs,
         SaveAll,
@@ -179,11 +178,10 @@ pub fn install(cx: &mut App) {
             .into_iter()
             .map(BindingSpec::into_key_binding),
     );
-    set_file_menu(cx, &[]);
+    set_file_menu(cx, &[], Language::current());
 }
 
-pub(crate) fn set_file_menu(cx: &mut App, recent_paths: &[PathBuf]) {
-    let language = Language::current();
+pub(crate) fn set_file_menu(cx: &mut App, recent_paths: &[PathBuf], language: Language) {
     let recent_items = recent_paths
         .iter()
         .take(20)
@@ -194,8 +192,7 @@ pub(crate) fn set_file_menu(cx: &mut App, recent_paths: &[PathBuf]) {
 
     cx.set_menus([Menu::new(language.text(TextKey::FileMenu)).items([
         MenuItem::action(language.text(TextKey::NewFile), NewFile),
-        MenuItem::action(language.text(TextKey::OpenFile), OpenFile),
-        MenuItem::action(language.text(TextKey::OpenFolder), OpenFolder),
+        MenuItem::action(language.text(TextKey::Open), OpenPath),
         MenuItem::submenu(Menu::new(language.text(TextKey::OpenRecent)).items(recent_items))
             .disabled(recent_is_empty),
         MenuItem::action(language.text(TextKey::RefreshFiles), RefreshTree),
@@ -224,8 +221,7 @@ mod tests {
     fn unit_actions_use_the_mieli_namespace() {
         let names = [
             NewFile.name(),
-            OpenFile.name(),
-            OpenFolder.name(),
+            OpenPath.name(),
             Save.name(),
             SaveAs.name(),
             SaveAll.name(),
@@ -261,8 +257,7 @@ mod tests {
             names,
             [
                 "mieli::NewFile",
-                "mieli::OpenFile",
-                "mieli::OpenFolder",
+                "mieli::OpenPath",
                 "mieli::Save",
                 "mieli::SaveAs",
                 "mieli::SaveAll",

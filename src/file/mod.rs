@@ -2,6 +2,7 @@ use std::{fmt, io as std_io, path::PathBuf};
 
 use crate::i18n::{Language, LocalizedMessage};
 
+pub mod dialog;
 pub mod io;
 pub mod scanner;
 pub mod watcher;

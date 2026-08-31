@@ -107,20 +107,25 @@ fn tab_strip(
                 div()
                     .id(close_element_id)
                     .flex()
+                    .flex_none()
                     .items_center()
                     .justify_center()
-                    .size(px(16.0))
+                    .size(px(20.0))
                     .rounded(px(Theme::control_radius()))
                     .cursor_pointer()
                     .tooltip(move |window, cx| {
                         Tooltip::text(language.text(TextKey::CloseTabTooltip), window, cx)
                     })
-                    .text_color(theme.text_faint)
+                    .text_color(theme.text_muted)
                     .hover(|style| style.bg(theme.element_hover).text_color(theme.text))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.close_tab(close_id, cx);
                     }))
-                    .child(icon(icons::CLOSE).size(px(11.0))),
+                    .child(
+                        icon(icons::CLOSE)
+                            .size(px(12.0))
+                            .text_color(theme.text_muted),
+                    ),
             );
         strip = strip.child(tab_button);
     }

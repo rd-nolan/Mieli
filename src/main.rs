@@ -24,7 +24,7 @@ fn main() {
         let paths = urls
             .iter()
             .filter_map(|url| path_from_file_url(url))
-            .filter(|path| mieli::file::io::is_markdown_file(path))
+            .filter(|path| path.is_dir() || mieli::file::io::is_markdown_file(path))
             .collect::<Vec<_>>();
         if paths.is_empty() {
             return;
@@ -40,7 +40,7 @@ fn main() {
         };
         let _ = open_view.update(&mut async_cx, |view, cx| {
             for path in paths {
-                let _ = view.open_file(path, cx);
+                let _ = view.open_path(path, cx);
             }
         });
     });
@@ -82,7 +82,7 @@ fn main() {
         *async_cx.borrow_mut() = Some(cx.to_async());
         let pending_paths = std::mem::take(&mut *pending_paths.borrow_mut());
         for path in pending_paths {
-            let _ = root_view.update(cx, |view, cx| view.open_file(path, cx));
+            let _ = root_view.update(cx, |view, cx| view.open_path(path, cx));
         }
         cx.activate(true);
     });
