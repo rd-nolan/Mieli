@@ -66,6 +66,12 @@ impl FileError {
 impl LocalizedMessage for FileError {
     fn localized_message(&self, language: Language) -> String {
         if matches!(language, Language::English) {
+            if let Self::PermissionDenied { path, operation } = self {
+                return format!(
+                    "Could not {operation}: permission denied. Drag this file or folder onto the Mieli window to authorize access. Path: {}",
+                    path.display()
+                );
+            }
             return self.to_string();
         }
 
@@ -84,11 +90,13 @@ impl LocalizedMessage for FileError {
                 language.operation_label(operation),
                 path.display()
             ),
-            Self::PermissionDenied { path, operation } => format!(
-                "无法{} {}：没有权限。",
-                language.operation_label(operation),
-                path.display()
-            ),
+            Self::PermissionDenied { path, operation } => {
+                format!(
+                    "无法{}：没有权限。请将该文件或文件夹拖入 Mieli 窗口以授权访问。路径：{}",
+                    language.operation_label(operation),
+                    path.display()
+                )
+            }
             Self::Io {
                 path,
                 operation,
@@ -121,7 +129,7 @@ impl fmt::Display for FileError {
             }
             Self::PermissionDenied { path, operation } => write!(
                 f,
-                "Could not {operation} {}: permission denied.",
+                "Could not {operation}: permission denied. Drag this file or folder onto the Mieli window to authorize access. Path: {}",
                 path.display()
             ),
             Self::Io {
@@ -134,3 +142,19 @@ impl fmt::Display for FileError {
 }
 
 impl std::error::Error for FileError {}
+
+#[cfg(test)]
+mod tests {
+    use super::{FileError, Language, LocalizedMessage};
+
+    #[test]
+    fn scan_permission_message_includes_drag_authorization_hint() {
+        let error = FileError::PermissionDenied {
+            path: "/private/notes".into(),
+            operation: "scan",
+        };
+
+        assert!(error.localized_message(Language::English).contains("Drag"));
+        assert!(error.localized_message(Language::Chinese).contains("拖入"));
+    }
+}

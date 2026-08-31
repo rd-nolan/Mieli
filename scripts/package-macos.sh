@@ -2,8 +2,10 @@
 set -euo pipefail
 
 root_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-app_dir="$root_dir/target/release/Mieli.app"
-binary="$root_dir/target/release/mieli"
+release_dir="$root_dir/target/release"
+app_dir="$release_dir/Mieli.app"
+dmg_path="${MIELI_DMG_PATH:-$release_dir/Mieli.dmg}"
+binary="$release_dir/mieli"
 
 cargo build --manifest-path "$root_dir/Cargo.toml" --release
 
@@ -20,4 +22,18 @@ cp "$root_dir/resources/mieli_logo_1024x1024.png" "$app_dir/Contents/Resources/m
 cp "$root_dir/resources/Info.plist" "$app_dir/Contents/Info.plist"
 
 /usr/bin/plutil -lint "$app_dir/Contents/Info.plist" >/dev/null
+
+dmg_stage_dir="$(mktemp -d "${TMPDIR:-/tmp}/mieli-dmg.XXXXXX")"
+trap 'rm -rf "$dmg_stage_dir"' EXIT
+/usr/bin/ditto "$app_dir" "$dmg_stage_dir/Mieli.app"
+/bin/ln -s /Applications "$dmg_stage_dir/Applications"
+mkdir -p "$(dirname -- "$dmg_path")"
+/usr/bin/hdiutil create \
+    -volname "Mieli" \
+    -srcfolder "$dmg_stage_dir" \
+    -ov \
+    -format UDZO \
+    "$dmg_path" >/dev/null
+
 echo "Created $app_dir"
+echo "Created $dmg_path"

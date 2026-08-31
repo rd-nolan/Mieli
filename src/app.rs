@@ -576,6 +576,7 @@ pub struct Mieli {
     editor_scrolls: HashMap<TabId, gpui::ScrollHandle>,
     open_tab_paths: OpenTabPaths,
     allow_quit: bool,
+    security_scopes: Vec<(PathBuf, crate::file::dialog::SecurityScopedResource)>,
 }
 
 impl Mieli {
@@ -620,6 +621,7 @@ impl Mieli {
             editor_scrolls: HashMap::new(),
             open_tab_paths: OpenTabPaths::default(),
             allow_quit: false,
+            security_scopes: Vec::new(),
         };
         actions::set_file_menu(cx, this.state.recent_files.paths(), this.language);
         this
@@ -706,6 +708,49 @@ impl Mieli {
     }
 
     pub fn open_path(
+        &mut self,
+        path: PathBuf,
+        cx: &mut gpui::Context<Self>,
+    ) -> Result<(), LifecycleError> {
+        self.open_selected_path(crate::file::dialog::SelectedPath::from_path(path), cx)
+    }
+
+    pub fn open_selected_path(
+        &mut self,
+        selection: crate::file::dialog::SelectedPath,
+        cx: &mut gpui::Context<Self>,
+    ) -> Result<(), LifecycleError> {
+        let (path, security_scope) = selection.into_parts();
+
+        let scope_path = path.clone();
+        let result = self.open_path_without_security_scope(path, cx);
+        if result.is_ok()
+            && !self
+                .security_scopes
+                .iter()
+                .any(|(path, _)| path == &scope_path)
+        {
+            self.security_scopes.push((scope_path, security_scope));
+        }
+        result
+    }
+
+    pub fn open_selected_path_with_permission_fallback(
+        &mut self,
+        selection: crate::file::dialog::SelectedPath,
+        cx: &mut gpui::Context<Self>,
+    ) -> Result<(), LifecycleError> {
+        let result = self.open_selected_path(selection, cx);
+        if matches!(
+            &result,
+            Err(LifecycleError::File(FileError::PermissionDenied { .. }))
+        ) {
+            let _ = self.open_path_dialog(cx);
+        }
+        result
+    }
+
+    fn open_path_without_security_scope(
         &mut self,
         path: PathBuf,
         cx: &mut gpui::Context<Self>,
@@ -821,6 +866,7 @@ impl Mieli {
         );
         self.state.sidebar_visible = true;
         self.watcher = Some(watcher);
+        self.prune_security_scopes();
         cx.notify();
         Ok(())
     }
@@ -898,12 +944,14 @@ impl Mieli {
 
             let view = cx.entity().downgrade();
             let async_cx = Rc::new(RefCell::new(cx.to_async()));
-            crate::file::dialog::begin_pick_path(move |path| {
-                let Some(path) = path else {
+            crate::file::dialog::begin_pick_path(move |selection| {
+                let Some(selection) = selection else {
                     return;
                 };
                 let mut async_cx = async_cx.borrow_mut();
-                let _ = view.update(&mut *async_cx, |view, cx| view.open_path(path, cx));
+                let _ = view.update(&mut *async_cx, |view, cx| {
+                    view.open_selected_path(selection, cx)
+                });
             });
         }
 
@@ -911,10 +959,10 @@ impl Mieli {
         {
             let language = self.language;
             cx.spawn(async move |this, cx| {
-                let Some(path) = crate::file::dialog::pick_path(language) else {
+                let Some(selection) = crate::file::dialog::pick_path(language) else {
                     return;
                 };
-                let _ = this.update(cx, |view, cx| view.open_path(path, cx));
+                let _ = this.update(cx, |view, cx| view.open_selected_path(selection, cx));
             })
             .detach();
         }
@@ -1365,8 +1413,24 @@ impl Mieli {
         self.refresh_tree(cx);
     }
 
-    fn on_quit(&mut self, _: &actions::Quit, _: &mut gpui::Window, cx: &mut gpui::Context<Self>) {
-        self.quit(cx);
+    fn on_external_paths_drop(
+        &mut self,
+        paths: &gpui::ExternalPaths,
+        _: &mut gpui::Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        for path in paths.paths() {
+            let result = self.open_selected_path_with_permission_fallback(
+                crate::file::dialog::SelectedPath::from_path(path.clone()),
+                cx,
+            );
+            if matches!(
+                &result,
+                Err(LifecycleError::File(FileError::PermissionDenied { .. }))
+            ) {
+                break;
+            }
+        }
     }
 
     fn on_open_recent<A: gpui::Action + actions::RecentAction>(
@@ -1416,6 +1480,7 @@ impl Mieli {
             };
         }
         self.clear_tab_modal(tab_id);
+        self.prune_security_scopes();
         cx.notify();
         true
     }
@@ -1637,6 +1702,24 @@ impl Mieli {
         }
     }
 
+    fn prune_security_scopes(&mut self) {
+        let workspace_root = self.state.workspace_root.clone();
+        let tab_paths = self
+            .state
+            .tabs
+            .iter()
+            .filter(|tab| !tab.path.as_os_str().is_empty())
+            .map(|tab| tab.path.clone())
+            .collect::<Vec<_>>();
+
+        self.security_scopes.retain(|(scope_path, _)| {
+            workspace_root
+                .as_ref()
+                .is_some_and(|root| paths_overlap(root, scope_path))
+                || tab_paths.iter().any(|path| paths_overlap(path, scope_path))
+        });
+    }
+
     fn refresh_workspace_tree(&mut self) {
         let Some(root) = self.state.workspace_root.clone() else {
             return;
@@ -1672,10 +1755,24 @@ impl Mieli {
     }
 }
 
+pub fn handle_global_quit(view: Option<gpui::WeakEntity<Mieli>>, cx: &mut gpui::App) {
+    if let Some(view) = view {
+        if view.update(cx, |view, cx| view.quit(cx)).is_err() {
+            cx.quit();
+        }
+    } else {
+        cx.quit();
+    }
+}
+
 fn display_title(path: &Path) -> String {
     path.file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| path.display().to_string())
+}
+
+fn paths_overlap(left: &Path, right: &Path) -> bool {
+    left == right || left.starts_with(right) || right.starts_with(left)
 }
 
 impl gpui::Render for Mieli {
@@ -1695,7 +1792,7 @@ impl gpui::Render for Mieli {
             .on_action(cx.listener(Self::on_next_tab))
             .on_action(cx.listener(Self::on_previous_tab))
             .on_action(cx.listener(Self::on_refresh_tree))
-            .on_action(cx.listener(Self::on_quit))
+            .on_drop(cx.listener(Self::on_external_paths_drop))
             .on_action(cx.listener(Self::on_open_recent::<actions::OpenRecent1>))
             .on_action(cx.listener(Self::on_open_recent::<actions::OpenRecent2>))
             .on_action(cx.listener(Self::on_open_recent::<actions::OpenRecent3>))
@@ -1746,6 +1843,17 @@ mod tests {
         markdown_destination, queue_modal, save_all_tab_is_writable, save_as_transition,
         save_tab_transition, window_close_action, workspace_root_for_path,
     };
+
+    #[test]
+    fn root_render_accepts_external_file_drops() {
+        let source = include_str!("app.rs");
+
+        assert!(source.contains("ExternalPaths"));
+        assert!(source.contains("on_external_paths_drop"));
+        assert!(source.contains("SelectedPath::from_path"));
+        assert!(source.contains("PermissionDenied"));
+        assert!(source.contains("open_selected_path_with_permission_fallback"));
+    }
 
     #[test]
     fn tab_navigation_wraps_and_uses_the_directional_edge_without_an_active_tab() {

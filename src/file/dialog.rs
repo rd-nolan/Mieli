@@ -1,11 +1,101 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+#[cfg(target_os = "macos")]
+use objc2::rc::Retained;
+#[cfg(target_os = "macos")]
+use objc2_foundation::{NSString, NSURL};
+
+/// A path selected through a macOS user gesture, together with the access
+/// scope that must stay alive while the path is scanned and watched.
+pub struct SelectedPath {
+    pub path: PathBuf,
+    security_scope: SecurityScopedResource,
+}
+
+impl SelectedPath {
+    pub fn from_path(path: PathBuf) -> Self {
+        let security_scope = SecurityScopedResource::from_path(&path);
+        Self {
+            path,
+            security_scope,
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn from_url(url: Retained<NSURL>) -> Option<Self> {
+        let path = url.path()?.to_string();
+        Some(Self {
+            path: PathBuf::from(path),
+            security_scope: SecurityScopedResource::from_url(url),
+        })
+    }
+
+    pub(crate) fn into_parts(self) -> (PathBuf, SecurityScopedResource) {
+        (self.path, self.security_scope)
+    }
+}
+
+pub struct SecurityScopedResource {
+    #[cfg(target_os = "macos")]
+    url: Retained<NSURL>,
+    #[cfg(target_os = "macos")]
+    access_started: bool,
+}
+
+impl SecurityScopedResource {
+    #[cfg(target_os = "macos")]
+    fn from_path(path: &Path) -> Self {
+        let path = path.to_string_lossy();
+        let url = NSURL::fileURLWithPath(&NSString::from_str(path.as_ref()));
+        Self::from_url(url)
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn from_path(_path: &Path) -> Self {
+        Self {}
+    }
+
+    #[cfg(target_os = "macos")]
+    fn from_url(url: Retained<NSURL>) -> Self {
+        let access_started = unsafe { url.startAccessingSecurityScopedResource() };
+        Self {
+            url,
+            access_started,
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for SecurityScopedResource {
+    fn drop(&mut self) {
+        if self.access_started {
+            unsafe { self.url.stopAccessingSecurityScopedResource() };
+        }
+    }
+}
+
+/// Convert a file URL string into a selected path and request a security scope.
+#[cfg(target_os = "macos")]
+pub fn selected_path_from_file_url(value: &str) -> Option<SelectedPath> {
+    let url = NSURL::URLWithString(&NSString::from_str(value))?;
+    SelectedPath::from_url(url)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn selected_path_from_file_url(value: &str) -> Option<SelectedPath> {
+    let url = url::Url::parse(value).ok()?;
+    (url.scheme() == "file")
+        .then(|| url.to_file_path().ok())
+        .flatten()
+        .map(SelectedPath::from_path)
+}
 
 /// Present a native open panel that accepts either one Markdown file or a
 /// directory.
 #[cfg(target_os = "macos")]
 pub fn begin_pick_path<F>(callback: F)
 where
-    F: FnOnce(Option<PathBuf>) + 'static,
+    F: FnOnce(Option<SelectedPath>) + 'static,
 {
     use std::cell::RefCell;
 
@@ -34,8 +124,7 @@ where
             panel_for_handler
                 .URLs()
                 .firstObject()
-                .and_then(|url| url.path())
-                .map(|path| PathBuf::from(path.to_string()))
+                .and_then(SelectedPath::from_url)
         } else {
             None
         };
@@ -52,7 +141,7 @@ where
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn pick_path(language: crate::i18n::Language) -> Option<PathBuf> {
+pub fn pick_path(language: crate::i18n::Language) -> Option<SelectedPath> {
     use crate::i18n::TextKey;
     use rfd::{FileDialog, MessageButtons, MessageDialog, MessageDialogResult};
 
@@ -68,7 +157,7 @@ pub fn pick_path(language: crate::i18n::Language) -> Option<PathBuf> {
         ))
         .show();
 
-    match choice {
+    let path = match choice {
         MessageDialogResult::Yes => FileDialog::new()
             .add_filter("Markdown", &["md", "markdown"])
             .pick_file(),
@@ -82,5 +171,7 @@ pub fn pick_path(language: crate::i18n::Language) -> Option<PathBuf> {
         MessageDialogResult::Ok | MessageDialogResult::Cancel | MessageDialogResult::Custom(_) => {
             None
         }
-    }
+    };
+
+    path.map(SelectedPath::from_path)
 }
