@@ -11,6 +11,49 @@ fn path_from_file_url(value: &str) -> Option<PathBuf> {
         .flatten()
 }
 
+fn open_main_window(
+    cx: &mut gpui::App,
+    open_view: &Rc<RefCell<Option<gpui::WeakEntity<app::Mieli>>>>,
+    async_cx: &Rc<RefCell<Option<gpui::AsyncApp>>>,
+    pending_paths: &Rc<RefCell<Vec<PathBuf>>>,
+) {
+    let window = cx
+        .open_window(
+            gpui::WindowOptions {
+                window_bounds: Some(gpui::WindowBounds::Windowed(gpui::Bounds::centered(
+                    None,
+                    gpui::size(gpui::px(1100.0), gpui::px(760.0)),
+                    cx,
+                ))),
+                ..Default::default()
+            },
+            move |window, cx| {
+                bezel::theme::appearance::observe_window(window, cx).detach();
+                let view = cx.new(app::Mieli::new);
+                let close_view = view.downgrade();
+                window.on_window_should_close(cx, move |_, cx| {
+                    close_view
+                        .update(cx, |view, cx| view.should_close_window(cx))
+                        .unwrap_or(true)
+                });
+                view
+            },
+        )
+        .expect("Mieli window should open");
+
+    let root_view = window
+        .entity(cx)
+        .expect("Mieli window root should be available");
+    *open_view.borrow_mut() = Some(root_view.downgrade());
+    *async_cx.borrow_mut() = Some(cx.to_async());
+
+    let paths_to_open = std::mem::take(&mut *pending_paths.borrow_mut());
+    for path in paths_to_open {
+        let _ = root_view.update(cx, |view, cx| view.open_path(path, cx));
+    }
+    cx.activate(true);
+}
+
 fn main() {
     let open_view: Rc<RefCell<Option<gpui::WeakEntity<app::Mieli>>>> = Rc::new(RefCell::new(None));
     let async_cx: Rc<RefCell<Option<gpui::AsyncApp>>> = Rc::new(RefCell::new(None));
@@ -38,11 +81,29 @@ fn main() {
             callback_pending_paths.borrow_mut().extend(paths);
             return;
         };
-        let _ = open_view.update(&mut async_cx, |view, cx| {
-            for path in paths {
-                let _ = view.open_path(path, cx);
-            }
-        });
+        let paths_for_update = paths.clone();
+        if open_view
+            .update(&mut async_cx, |view, cx| {
+                for path in paths_for_update {
+                    let _ = view.open_path(path, cx);
+                }
+            })
+            .is_err()
+        {
+            callback_pending_paths.borrow_mut().extend(paths);
+        }
+    });
+
+    let reopen_open_view = Rc::clone(&open_view);
+    let reopen_async_cx = Rc::clone(&async_cx);
+    let reopen_pending_paths = Rc::clone(&pending_paths);
+    application.on_reopen(move |cx| {
+        open_main_window(
+            cx,
+            &reopen_open_view,
+            &reopen_async_cx,
+            &reopen_pending_paths,
+        );
     });
 
     application.run(move |cx: &mut gpui::App| {
@@ -53,38 +114,7 @@ fn main() {
         bezel::theme::appearance::init(bezel::theme::appearance::AppearanceMode::System, cx);
         editor::init(cx);
         actions::install(cx);
-        let bounds =
-            gpui::Bounds::centered(None, gpui::size(gpui::px(1100.0), gpui::px(760.0)), cx);
-        let window = cx
-            .open_window(
-                gpui::WindowOptions {
-                    window_bounds: Some(gpui::WindowBounds::Windowed(bounds)),
-                    ..Default::default()
-                },
-                |window, cx| {
-                    bezel::theme::appearance::observe_window(window, cx).detach();
-                    let view = cx.new(app::Mieli::new);
-                    let close_view = view.downgrade();
-                    window.on_window_should_close(cx, move |_, cx| {
-                        close_view
-                            .update(cx, |view, cx| view.should_close_window(cx))
-                            .unwrap_or(true)
-                    });
-                    view
-                },
-            )
-            .expect("Mieli window should open");
-
-        let root_view = window
-            .entity(cx)
-            .expect("Mieli window root should be available");
-        *open_view.borrow_mut() = Some(root_view.downgrade());
-        *async_cx.borrow_mut() = Some(cx.to_async());
-        let pending_paths = std::mem::take(&mut *pending_paths.borrow_mut());
-        for path in pending_paths {
-            let _ = root_view.update(cx, |view, cx| view.open_path(path, cx));
-        }
-        cx.activate(true);
+        open_main_window(cx, &open_view, &async_cx, &pending_paths);
     });
 }
 

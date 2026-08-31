@@ -9,6 +9,7 @@ use bezel::{
         tooltip::Tooltip,
     },
 };
+use std::path::Path;
 
 use crate::{app::Mieli, i18n::TextKey};
 
@@ -20,6 +21,7 @@ pub fn render(
 ) -> bezel::gpui::Stateful<bezel::gpui::Div> {
     let tab_strip = tab_strip(view, theme, cx);
     let editor = editor_surface(view, theme, cx);
+    let path_bar = path_bar(view, theme, cx);
     div()
         .id("mieli-main-pane")
         .flex()
@@ -30,6 +32,7 @@ pub fn render(
         .bg(theme.bg)
         .child(tab_strip)
         .child(editor)
+        .child(path_bar)
 }
 
 fn tab_strip(
@@ -216,4 +219,102 @@ fn editor_surface(
                 .mx_auto()
                 .child(editor_content),
         )
+}
+
+fn path_for_copy(path: &Path) -> Option<String> {
+    (!path.as_os_str().is_empty()).then(|| path.display().to_string())
+}
+
+fn path_bar(
+    view: &mut Mieli,
+    theme: &Theme,
+    cx: &mut Context<Mieli>,
+) -> bezel::gpui::Stateful<bezel::gpui::Div> {
+    let language = view.language();
+    let path = view
+        .active_file_path()
+        .and_then(|path| path_for_copy(&path));
+    let mut path_label = div()
+        .id("mieli-file-path")
+        .min_w(px(0.0))
+        .flex_1()
+        .truncate()
+        .text_size(px(11.0))
+        .text_color(theme.text_muted)
+        .child(
+            path.clone()
+                .unwrap_or_else(|| language.text(TextKey::Untitled).to_string()),
+        );
+
+    if let Some(full_path) = path.as_ref() {
+        let full_path = full_path.clone();
+        path_label =
+            path_label.tooltip(move |window, cx| Tooltip::text(full_path.clone(), window, cx));
+    }
+
+    let mut bar = div()
+        .id("mieli-file-path-bar")
+        .flex()
+        .items_center()
+        .gap(px(6.0))
+        .h(px(28.0))
+        .flex_none()
+        .px(px(12.0))
+        .border_t_1()
+        .border_color(theme.border)
+        .bg(theme.surface)
+        .child(
+            icon(icons::DOCUMENT)
+                .size(px(13.0))
+                .text_color(theme.text_faint),
+        )
+        .child(path_label);
+
+    if path.is_some() {
+        bar = bar.child(
+            div()
+                .id("mieli-copy-path")
+                .flex()
+                .items_center()
+                .justify_center()
+                .size(px(22.0))
+                .rounded(px(Theme::control_radius()))
+                .cursor_pointer()
+                .tooltip(move |window, cx| {
+                    Tooltip::text(language.text(TextKey::CopyPath), window, cx)
+                })
+                .hover(|style| style.bg(theme.element_hover).text_color(theme.text))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.copy_active_path(cx);
+                }))
+                .child(
+                    icon(icons::COPY)
+                        .size(px(13.0))
+                        .text_color(theme.text_muted),
+                ),
+        );
+    }
+
+    bar
+}
+
+#[cfg(test)]
+mod tests {
+    use super::path_for_copy;
+    use std::path::Path;
+
+    #[test]
+    fn path_for_copy_preserves_the_complete_file_path() {
+        let path = Path::new("/Users/xin/Notes/README.md");
+
+        assert_eq!(
+            path_for_copy(path),
+            Some("/Users/xin/Notes/README.md".to_string())
+        );
+    }
+
+    #[test]
+    fn path_for_copy_skips_untitled_documents() {
+        assert_eq!(path_for_copy(Path::new("")), None);
+    }
 }

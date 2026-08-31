@@ -1117,6 +1117,20 @@ impl Mieli {
         Some((tab.editor.clone(), scroll))
     }
 
+    pub fn active_file_path(&self) -> Option<PathBuf> {
+        let tab_id = self.state.active_tab?;
+        let tab = self.state.tabs.iter().find(|tab| tab.id == tab_id)?;
+        (!tab.path.as_os_str().is_empty()).then(|| tab.path.clone())
+    }
+
+    pub fn copy_active_path(&mut self, cx: &mut gpui::Context<Self>) -> bool {
+        let Some(path) = self.active_file_path() else {
+            return false;
+        };
+        cx.write_to_clipboard(gpui::ClipboardItem::new_string(path.display().to_string()));
+        true
+    }
+
     pub fn next_tab(&mut self, cx: &mut gpui::Context<Self>) -> bool {
         self.navigate_tab(TabDirection::Next, cx)
     }
