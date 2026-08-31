@@ -72,32 +72,48 @@ pub fn render(
         } else {
             theme.warning_muted
         };
+        let toast_gap = if is_success { px(6.0) } else { px(7.0) };
+        let toast_padding = if is_success { px(7.0) } else { px(9.0) };
+        let toast_icon_size = if is_success { px(15.0) } else { px(17.0) };
+        let toast_text_size = if is_success { px(12.0) } else { px(13.0) };
         let mut notification_toast = div()
             .id("mieli-notification")
             .absolute()
-            .right(px(18.0))
-            .bottom(px(18.0))
-            .max_w(px(380.0))
+            .max_w(if is_success { px(240.0) } else { px(380.0) })
             .flex()
             .items_center()
-            .gap(px(7.0))
-            .p(px(9.0))
+            .gap(toast_gap)
+            .p(toast_padding)
             .rounded(px(Theme::control_radius()))
             .border_1()
             .border_color(status_border)
             .bg(status_background)
             .shadow_sm()
             .text_color(theme.text)
-            .child(icon(status_icon).size(px(17.0)).text_color(status_color))
+            .child(
+                icon(status_icon)
+                    .size(toast_icon_size)
+                    .text_color(status_color),
+            )
             .child(
                 div()
                     .id("mieli-notification-message")
                     .min_w(px(0.0))
                     .flex_1()
-                    .text_size(px(13.0))
+                    .text_size(toast_text_size)
                     .truncate()
                     .child(notification.message.clone()),
             );
+
+        if is_success {
+            notification_toast = notification_toast
+                .left(px(0.0))
+                .right(px(0.0))
+                .bottom(px(44.0))
+                .mx_auto();
+        } else {
+            notification_toast = notification_toast.right(px(18.0)).bottom(px(18.0));
+        }
 
         if !is_success {
             notification_toast = notification_toast.child(

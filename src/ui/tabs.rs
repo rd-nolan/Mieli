@@ -45,13 +45,21 @@ fn tab_strip(
     let mut strip = div()
         .id("mieli-tabs")
         .flex()
-        .items_center()
+        .items_end()
         .gap(px(1.0))
         .px(px(6.0))
-        .py(px(1.0))
-        .border_b_1()
-        .border_color(theme.border)
-        .bg(theme.surface);
+        .py(px(0.0))
+        .relative()
+        .bg(theme.surface)
+        .child(
+            div()
+                .absolute()
+                .left(px(0.0))
+                .right(px(0.0))
+                .bottom(px(0.0))
+                .h(px(1.0))
+                .bg(theme.border),
+        );
 
     for tab in &view.state.tabs {
         let tab_id = tab.id;
@@ -80,19 +88,12 @@ fn tab_strip(
             .max_w(px(170.0))
             .px(px(6.0))
             .py(px(2.0))
-            .rounded_t(px(Theme::control_radius()))
             .text_size(px(12.0))
             .text_color(if selected {
                 theme.text
             } else {
                 theme.text_muted
             })
-            .when(selected, |tab| {
-                tab.bg(theme.surface_card)
-                    .border_b_1()
-                    .border_color(theme.accent)
-            })
-            .hover(|style| style.bg(theme.element_hover))
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.switch_tab(tab_id, cx);
             }))
@@ -104,7 +105,16 @@ fn tab_strip(
             .flex()
             .items_center()
             .flex_none()
-            .gap(px(1.0))
+            .gap(px(0.0))
+            .rounded_t(px(Theme::control_radius()))
+            .when(selected, |tab| {
+                tab.bg(theme.surface_card)
+                    .border_b_1()
+                    .border_color(theme.accent)
+            })
+            .when(!selected, |tab| {
+                tab.hover(|style| style.bg(theme.element_hover))
+            })
             .child(tab_label)
             .child(
                 div()
