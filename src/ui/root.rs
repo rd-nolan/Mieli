@@ -62,8 +62,13 @@ pub fn render(
         } else {
             theme.warning
         };
+        let status_border = if is_success {
+            theme.border
+        } else {
+            theme.warning
+        };
         let status_background = if is_success {
-            theme.success_muted
+            theme.surface_card
         } else {
             theme.warning_muted
         };
@@ -75,12 +80,13 @@ pub fn render(
             .max_w(px(380.0))
             .flex()
             .items_center()
-            .gap(px(8.0))
-            .p(px(10.0))
-            .rounded(px(Theme::panel_radius()))
+            .gap(px(7.0))
+            .p(px(9.0))
+            .rounded(px(Theme::control_radius()))
             .border_1()
-            .border_color(status_color)
+            .border_color(status_border)
             .bg(status_background)
+            .shadow_sm()
             .text_color(theme.text)
             .child(icon(status_icon).size(px(17.0)).text_color(status_color))
             .child(
