@@ -1,7 +1,7 @@
 use std::{
     cmp::Ordering,
     collections::VecDeque,
-    fs,
+    fs, io,
     path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering as AtomicOrdering},
 };
@@ -60,8 +60,11 @@ pub(crate) fn scan_markdown_tree_progressive(
             return Ok(());
         }
 
-        let mut entries = fs::read_dir(&directory)
-            .map_err(|error| FileError::from_io(&directory, "scan", error))?;
+        let mut entries = match fs::read_dir(&directory) {
+            Ok(entries) => entries,
+            Err(error) if directory != root && is_transient_scan_error(&error) => continue,
+            Err(error) => return Err(FileError::from_io(&directory, "scan", error)),
+        };
         loop {
             if cancel.load(AtomicOrdering::Relaxed) {
                 return Ok(());
@@ -70,15 +73,21 @@ pub(crate) fn scan_markdown_tree_progressive(
             let Some(entry) = entries.next() else {
                 break;
             };
-            let entry = entry.map_err(|error| FileError::from_io(&directory, "scan", error))?;
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(error) if is_transient_scan_error(&error) => continue,
+                Err(error) => return Err(FileError::from_io(&directory, "scan", error)),
+            };
             let path = entry.path();
             if cancel.load(AtomicOrdering::Relaxed) {
                 return Ok(());
             }
 
-            let file_type = entry
-                .file_type()
-                .map_err(|error| FileError::from_io(&path, "scan", error))?;
+            let file_type = match entry.file_type() {
+                Ok(file_type) => file_type,
+                Err(error) if is_transient_scan_error(&error) => continue,
+                Err(error) => return Err(FileError::from_io(&path, "scan", error)),
+            };
             if file_type.is_dir() {
                 directories.push_back(path);
             } else if file_type.is_file() && is_markdown_file(&path) {
@@ -88,6 +97,10 @@ pub(crate) fn scan_markdown_tree_progressive(
     }
 
     Ok(())
+}
+
+fn is_transient_scan_error(error: &io::Error) -> bool {
+    error.kind() == io::ErrorKind::NotFound
 }
 
 fn sort_file_tree_nodes(nodes: &mut [FileTreeNode]) {

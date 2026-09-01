@@ -13,7 +13,7 @@ use std::path::Path;
 
 use crate::{app::Mieli, i18n::TextKey};
 
-use super::root::PANEL_HEADER_HEIGHT;
+use super::root::{PANEL_HEADER_HEIGHT, PATH_BAR_HEIGHT, SPLIT_HANDLE_BRIDGE_WIDTH};
 
 pub fn render(
     view: &mut Mieli,
@@ -81,7 +81,7 @@ fn tab_strip(
             .max_w(px(170.0))
             .pl(px(6.0))
             .pr(px(0.0))
-            .h(px(20.0))
+            .h(px(28.0))
             .text_size(px(12.0))
             .text_color(if selected {
                 theme.text
@@ -125,7 +125,7 @@ fn tab_strip(
                     .flex_none()
                     .items_center()
                     .justify_center()
-                    .size(px(20.0))
+                    .size(px(26.0))
                     .rounded(px(Theme::control_radius()))
                     .cursor_pointer()
                     .tooltip(move |window, cx| {
@@ -151,7 +151,7 @@ fn tab_strip(
             .flex()
             .items_center()
             .justify_center()
-            .size(px(22.0))
+            .size(px(26.0))
             .rounded(px(Theme::control_radius()))
             .text_color(theme.text_muted)
             .cursor_pointer()
@@ -218,10 +218,11 @@ fn editor_surface(
         editor.into_any_element()
     };
 
-    div()
+    let mut surface = div()
         .id("mieli-editor-scroll")
         .flex_1()
         .min_h_0()
+        .relative()
         .overflow_y_scroll()
         .track_scroll(&scroll)
         .px(px(24.0))
@@ -234,7 +235,46 @@ fn editor_surface(
                 .max_w(px(760.0))
                 .mx_auto()
                 .child(editor_content),
-        )
+        );
+
+    if view.workspace_scan_loading() {
+        surface = surface.child(
+            div()
+                .id("mieli-workspace-loading")
+                .absolute()
+                .top(px(0.0))
+                .bottom(px(0.0))
+                .left(px(0.0))
+                .right(px(0.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .bg(theme.bg.opacity(0.82))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.0))
+                        .px(px(12.0))
+                        .py(px(8.0))
+                        .rounded(px(Theme::control_radius()))
+                        .border_1()
+                        .border_color(theme.border)
+                        .bg(theme.surface)
+                        .shadow_sm()
+                        .text_size(px(12.0))
+                        .text_color(theme.text_muted)
+                        .child(
+                            icon(icons::FOLDER_WITH_FILES)
+                                .size(px(15.0))
+                                .text_color(theme.accent),
+                        )
+                        .child(language.text(TextKey::LoadingWorkspace)),
+                ),
+        );
+    }
+
+    surface
 }
 
 fn path_for_copy(path: &Path) -> Option<String> {
@@ -273,11 +313,10 @@ fn path_bar(
         .flex()
         .items_center()
         .gap(px(6.0))
-        .h(px(28.0))
+        .h(px(PATH_BAR_HEIGHT))
         .flex_none()
         .px(px(12.0))
-        .border_t_1()
-        .border_color(theme.border)
+        .relative()
         .bg(theme.surface)
         .child(
             icon(icons::DOCUMENT)
@@ -311,7 +350,15 @@ fn path_bar(
         );
     }
 
-    bar
+    bar.child(
+        div()
+            .absolute()
+            .top(px(0.0))
+            .left(px(-SPLIT_HANDLE_BRIDGE_WIDTH))
+            .right(px(0.0))
+            .h(px(1.0))
+            .bg(theme.border),
+    )
 }
 
 #[cfg(test)]

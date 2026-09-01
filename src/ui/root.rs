@@ -20,7 +20,10 @@ use super::{dialogs, sidebar, tabs};
 pub(crate) const SIDEBAR_MIN_WIDTH: f32 = 200.0;
 pub(crate) const EDITOR_MIN_WIDTH: f32 = 500.0;
 pub(crate) const SPLIT_HANDLE_WIDTH: f32 = 9.0;
-pub(crate) const PANEL_HEADER_HEIGHT: f32 = 33.0;
+pub(crate) const SPLIT_HANDLE_SIDE_WIDTH: f32 = (SPLIT_HANDLE_WIDTH - 1.0) / 2.0;
+pub(crate) const SPLIT_HANDLE_BRIDGE_WIDTH: f32 = SPLIT_HANDLE_WIDTH - SPLIT_HANDLE_SIDE_WIDTH;
+pub(crate) const PANEL_HEADER_HEIGHT: f32 = 32.0;
+pub(crate) const PATH_BAR_HEIGHT: f32 = 28.0;
 pub(crate) const WORKSPACE_MIN_WIDTH: f32 =
     SIDEBAR_MIN_WIDTH + SPLIT_HANDLE_WIDTH + EDITOR_MIN_WIDTH;
 
@@ -38,7 +41,10 @@ pub fn render(
 ) -> bezel::gpui::Stateful<bezel::gpui::Div> {
     let theme = Theme::of(cx).clone();
     let toolbar = toolbar(view, &theme, cx);
-    let has_tabs = !view.state.tabs.is_empty();
+    let has_tabs = view
+        .state
+        .active_tab
+        .is_some_and(|active_id| view.state.tabs.iter().any(|tab| tab.id == active_id));
 
     let mut body = div()
         .id("mieli-workspace")
@@ -56,24 +62,59 @@ pub fn render(
         } else {
             theme.border.opacity(0.88)
         };
-        let split_handle_side_width = (SPLIT_HANDLE_WIDTH - 1.0) / 2.0;
+        let split_handle_side_width = SPLIT_HANDLE_SIDE_WIDTH;
+        let right_fill = if has_tabs {
+            div()
+                .absolute()
+                .top(px(0.0))
+                .bottom(px(0.0))
+                .right(px(0.0))
+                .w(px(split_handle_side_width))
+                .flex()
+                .flex_col()
+                .child(
+                    div()
+                        .h(px(PANEL_HEADER_HEIGHT))
+                        .flex_none()
+                        .bg(theme.surface),
+                )
+                .child(div().flex_1().min_h_0().bg(theme.bg))
+                .child(div().h(px(PATH_BAR_HEIGHT)).flex_none().bg(theme.surface))
+        } else {
+            div()
+                .absolute()
+                .top(px(0.0))
+                .bottom(px(0.0))
+                .right(px(0.0))
+                .w(px(split_handle_side_width))
+                .bg(theme.bg)
+        };
         let split_handle = div()
             .id("mieli-sidebar-split-handle")
             .relative()
             .w(px(SPLIT_HANDLE_WIDTH))
             .h_full()
             .flex_none()
-            .flex()
-            .items_center()
             .cursor_col_resize()
             .child(
                 div()
-                    .h_full()
+                    .absolute()
+                    .top(px(0.0))
+                    .bottom(px(0.0))
+                    .left(px(0.0))
                     .w(px(split_handle_side_width))
                     .bg(theme.surface),
             )
-            .child(div().h_full().w(px(1.0)).bg(split_indicator))
-            .child(div().h_full().w(px(split_handle_side_width)).bg(theme.bg))
+            .child(right_fill)
+            .child(
+                div()
+                    .absolute()
+                    .top(px(0.0))
+                    .bottom(px(0.0))
+                    .left(px(split_handle_side_width))
+                    .w(px(1.0))
+                    .bg(split_indicator),
+            )
             .on_drag(SplitDrag, |_, _, _, cx| cx.new(|_| bezel::gpui::Empty));
 
         body = body
@@ -108,15 +149,17 @@ pub fn render(
     } else {
         body = body.child(empty_state(view, &theme, cx));
     }
-    body = body.child(
-        div()
-            .absolute()
-            .left(px(0.0))
-            .right(px(0.0))
-            .top(px(PANEL_HEADER_HEIGHT - 1.0))
-            .h(px(1.0))
-            .bg(theme.border),
-    );
+    if has_tabs {
+        body = body.child(
+            div()
+                .absolute()
+                .left(px(0.0))
+                .right(px(0.0))
+                .top(px(PANEL_HEADER_HEIGHT - 1.0))
+                .h(px(1.0))
+                .bg(theme.border),
+        );
+    }
     let mut root = div()
         .id("mieli-root")
         .size_full()
@@ -463,6 +506,38 @@ fn empty_state(
             },
         )
     };
+    let mut welcome_card = div()
+        .id("mieli-welcome-card")
+        .w_full()
+        .max_w(px(360.0))
+        .flex()
+        .flex_col()
+        .items_center()
+        .child(
+            icon(icons::DOCUMENT)
+                .size(px(28.0))
+                .text_color(theme.accent),
+        )
+        .child(
+            div()
+                .mt(px(12.0))
+                .text_size(px(13.0))
+                .text_color(theme.text_muted)
+                .text_center()
+                .child(language.text(empty_hint)),
+        );
+
+    if !view.workspace_scan_loading() {
+        welcome_card = welcome_card.child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(4.0))
+                .mt(px(16.0))
+                .child(empty_action),
+        );
+    }
+
     div()
         .id("mieli-empty-state")
         .flex_1()
@@ -472,36 +547,7 @@ fn empty_state(
         .justify_center()
         .p(px(24.0))
         .bg(theme.bg)
-        .child(
-            div()
-                .id("mieli-welcome-card")
-                .w_full()
-                .max_w(px(360.0))
-                .flex()
-                .flex_col()
-                .items_center()
-                .child(
-                    icon(icons::DOCUMENT)
-                        .size(px(28.0))
-                        .text_color(theme.accent),
-                )
-                .child(
-                    div()
-                        .mt(px(12.0))
-                        .text_size(px(13.0))
-                        .text_color(theme.text_muted)
-                        .text_center()
-                        .child(language.text(empty_hint)),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(4.0))
-                        .mt(px(16.0))
-                        .child(empty_action),
-                ),
-        )
+        .child(welcome_card)
 }
 
 fn app_logo(size: f32) -> bezel::gpui::Img {

@@ -187,15 +187,6 @@ pub fn render(
                 .overflow_y_scroll()
                 .p(px(5.0))
                 .child(tree)
-                .when(scan_loading, |content| {
-                    content.child(
-                        div()
-                            .p(px(8.0))
-                            .text_size(px(11.0))
-                            .text_color(theme.text_faint)
-                            .child(language.text(TextKey::LoadingWorkspace)),
-                    )
-                })
                 .when(!empty_message.is_empty(), |content| {
                     content.child(
                         div()
