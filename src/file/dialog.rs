@@ -5,6 +5,8 @@ use objc2::rc::Retained;
 #[cfg(target_os = "macos")]
 use objc2_foundation::{NSString, NSURL};
 
+pub(crate) const MARKDOWN_FILE_EXTENSIONS: &[&str] = &["md", "markdown"];
+
 /// A path selected through a macOS user gesture, together with the access
 /// scope that must stay alive while the path is scanned and watched.
 pub struct SelectedPath {
@@ -159,11 +161,11 @@ pub fn pick_path(language: crate::i18n::Language) -> Option<SelectedPath> {
 
     let path = match choice {
         MessageDialogResult::Yes => FileDialog::new()
-            .add_filter("Markdown", &["md", "markdown"])
+            .add_filter("Markdown", MARKDOWN_FILE_EXTENSIONS)
             .pick_file(),
         MessageDialogResult::No => FileDialog::new().pick_folder(),
         MessageDialogResult::Custom(label) if label == file_label => FileDialog::new()
-            .add_filter("Markdown", &["md", "markdown"])
+            .add_filter("Markdown", MARKDOWN_FILE_EXTENSIONS)
             .pick_file(),
         MessageDialogResult::Custom(label) if label == folder_label => {
             FileDialog::new().pick_folder()

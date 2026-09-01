@@ -1,4 +1,4 @@
-use std::{path::PathBuf, time::SystemTime};
+use std::{cmp::Ordering, path::PathBuf, time::SystemTime};
 
 use crate::{
     config::recent::RecentFiles,
@@ -31,6 +31,15 @@ pub struct FileTreeNode {
     pub is_dir: bool,
     pub expanded: bool,
     pub children: Vec<FileTreeNode>,
+}
+
+pub(crate) fn compare_file_tree_nodes(left: &FileTreeNode, right: &FileTreeNode) -> Ordering {
+    let left_rank = if left.is_dir { 0 } else { 1 };
+    let right_rank = if right.is_dir { 0 } else { 1 };
+    left_rank
+        .cmp(&right_rank)
+        .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
+        .then_with(|| left.path.cmp(&right.path))
 }
 
 pub struct EditorTab {

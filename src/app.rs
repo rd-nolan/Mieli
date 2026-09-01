@@ -95,9 +95,11 @@ fn markdown_destination(path: &Path) -> PathBuf {
     PathBuf::from(destination)
 }
 
-fn workspace_root_for_path(path: &Path) -> Option<PathBuf> {
+fn workspace_root_for_path(path: &Path, current_workspace: Option<&Path>) -> Option<PathBuf> {
     if path.is_dir() {
         Some(path.to_path_buf())
+    } else if current_workspace.is_some_and(|root| path.starts_with(root)) {
+        None
     } else {
         path.parent().map(Path::to_path_buf)
     }
@@ -275,7 +277,6 @@ fn load_external_change(
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ConflictDecision {
-    Cancel,
     KeepMine,
 }
 
@@ -285,7 +286,9 @@ fn apply_conflict_decision(
     decision: ConflictDecision,
 ) {
     *disk_state = DiskState::Conflict;
-    *autosave_blocked = matches!(decision, ConflictDecision::Cancel);
+    match decision {
+        ConflictDecision::KeepMine => *autosave_blocked = false,
+    }
 }
 
 fn autosave_is_eligible(
@@ -355,14 +358,17 @@ fn clear_tab_modal_state(
     clear_shutdown_modal(active, pending, has_dirty_tabs);
 }
 
-fn apply_removed_event(dirty: &mut bool, disk_state: &mut DiskState) {
+fn mark_deleted(dirty: &mut bool, disk_state: &mut DiskState) {
     *dirty = true;
     *disk_state = DiskState::Deleted;
 }
 
-fn keep_deleted_open(dirty: &mut bool, disk_state: &mut DiskState) {
-    *dirty = true;
-    *disk_state = DiskState::Deleted;
+fn dismiss_modal_state(active: &mut Option<Modal>, pending: &mut VecDeque<Modal>) -> bool {
+    if matches!(active, Some(Modal::ExternalConflict(_))) {
+        return false;
+    }
+    advance_modal(active, pending);
+    true
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -570,6 +576,7 @@ impl From<WatchError> for LifecycleError {
 }
 
 const WORKSPACE_SCAN_BATCH_SIZE: usize = 64;
+const WORKSPACE_SCAN_CHANNEL_CAPACITY: usize = 4;
 const MAX_WORKSPACE_SCAN_PATHS_PER_POLL: usize = 256;
 
 enum WorkspaceScanMessage {
@@ -595,6 +602,23 @@ struct WorkspaceScan {
     showing_previous_tree: bool,
 }
 
+fn workspace_scan_channel() -> (
+    mpsc::SyncSender<WorkspaceScanMessage>,
+    Receiver<WorkspaceScanMessage>,
+) {
+    mpsc::sync_channel(WORKSPACE_SCAN_CHANNEL_CAPACITY)
+}
+
+fn workspace_scan_disconnected(root: &Path) -> Result<(), FileError> {
+    Err(FileError::other(root, "scan"))
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum WorkspaceRefreshMode {
+    Immediate,
+    Coalesce,
+}
+
 pub struct Mieli {
     language: Language,
     pub(crate) sidebar_width: gpui::Pixels,
@@ -611,6 +635,7 @@ pub struct Mieli {
     workspace_scan: Option<WorkspaceScan>,
     workspace_scan_generation: u64,
     workspace_refresh_pending: bool,
+    workspace_scan_error: Option<FileError>,
     allow_quit: bool,
     security_scopes: Vec<(PathBuf, crate::file::dialog::SecurityScopedResource)>,
 }
@@ -661,6 +686,7 @@ impl Mieli {
             workspace_scan: None,
             workspace_scan_generation: 0,
             workspace_refresh_pending: false,
+            workspace_scan_error: None,
             allow_quit: false,
             security_scopes: Vec::new(),
         };
@@ -680,6 +706,15 @@ impl Mieli {
         self.workspace_scan
             .as_ref()
             .is_some_and(|scan| scan.showing_previous_tree)
+    }
+
+    pub(crate) fn workspace_scan_error(&self) -> Option<&FileError> {
+        self.workspace_scan_error.as_ref()
+    }
+
+    pub(crate) fn active_tab(&self) -> Option<&EditorTab> {
+        let active_id = self.state.active_tab?;
+        self.state.tabs.iter().find(|tab| tab.id == active_id)
     }
 
     pub fn toggle_language(&mut self, cx: &mut gpui::Context<Self>) {
@@ -811,8 +846,8 @@ impl Mieli {
             return self.open_folder(canonical, cx);
         }
 
-        if let Some(parent) = workspace_root_for_path(&canonical)
-            && workspace_root_changed(self.state.workspace_root.as_deref(), &parent)
+        if let Some(parent) =
+            workspace_root_for_path(&canonical, self.state.workspace_root.as_deref())
         {
             self.open_folder(parent, cx)?;
         }
@@ -890,7 +925,7 @@ impl Mieli {
         self.state.tabs[index].autosave_blocked = false;
         self.autosave_tasks.remove(&tab_id);
         self.clear_tab_modal(tab_id);
-        self.refresh_workspace_tree(cx, true);
+        self.refresh_workspace_tree(cx, WorkspaceRefreshMode::Immediate);
         self.refresh_watcher();
         cx.notify();
         Ok(canonical)
@@ -927,6 +962,7 @@ impl Mieli {
             previous_tree,
         );
         self.state.sidebar_visible = true;
+        self.workspace_scan_error = None;
         self.watcher = Some(watcher);
         self.prune_security_scopes();
         self.start_workspace_scan(canonical, expansion, cx);
@@ -1042,7 +1078,11 @@ impl Mieli {
         };
         let title = self.state.tabs[index].title.clone();
         cx.spawn(async move |this, cx| {
-            let Some(destination) = rfd::FileDialog::new().set_file_name(title).save_file() else {
+            let Some(destination) = rfd::FileDialog::new()
+                .add_filter("Markdown", crate::file::dialog::MARKDOWN_FILE_EXTENSIONS)
+                .set_file_name(title)
+                .save_file()
+            else {
                 return;
             };
             let _ = this.update(cx, |view, cx| {
@@ -1135,7 +1175,7 @@ impl Mieli {
             return false;
         };
         let tab = &mut self.state.tabs[index];
-        keep_deleted_open(&mut tab.dirty, &mut tab.disk_state);
+        mark_deleted(&mut tab.dirty, &mut tab.disk_state);
         tab.autosave_blocked = false;
         self.clear_tab_modal(tab_id);
         cx.notify();
@@ -1200,37 +1240,26 @@ impl Mieli {
     }
 
     pub fn dismiss_modal(&mut self, cx: &mut gpui::Context<Self>) {
-        let Some(modal) = self.modal else {
+        if self.modal.is_none() {
             return;
-        };
-        if let Modal::ExternalConflict(tab_id) = modal
-            && let Some(index) = self.tab_index(tab_id)
-        {
-            let tab = &mut self.state.tabs[index];
-            apply_conflict_decision(
-                &mut tab.disk_state,
-                &mut tab.autosave_blocked,
-                ConflictDecision::Cancel,
-            );
-            tab.autosave_generation = tab.autosave_generation.saturating_add(1);
-            self.autosave_tasks.remove(&tab_id);
         }
-        advance_modal(&mut self.modal, &mut self.pending_modals);
+        if !dismiss_modal_state(&mut self.modal, &mut self.pending_modals) {
+            return;
+        }
         cx.notify();
     }
 
     pub fn active_editor_surface(
         &self,
     ) -> Option<(gpui::Entity<editor::Editor>, gpui::ScrollHandle)> {
-        let tab_id = self.state.active_tab?;
-        let tab = self.state.tabs.iter().find(|tab| tab.id == tab_id)?;
+        let tab = self.active_tab()?;
+        let tab_id = tab.id;
         let scroll = self.editor_scrolls.get(&tab_id)?.clone();
         Some((tab.editor.clone(), scroll))
     }
 
     pub fn active_file_path(&self) -> Option<PathBuf> {
-        let tab_id = self.state.active_tab?;
-        let tab = self.state.tabs.iter().find(|tab| tab.id == tab_id)?;
+        let tab = self.active_tab()?;
         (!tab.path.as_os_str().is_empty()).then(|| tab.path.clone())
     }
 
@@ -1266,7 +1295,7 @@ impl Mieli {
     }
 
     pub fn refresh_tree(&mut self, cx: &mut gpui::Context<Self>) {
-        self.refresh_workspace_tree(cx, true);
+        self.refresh_workspace_tree(cx, WorkspaceRefreshMode::Immediate);
         cx.notify();
     }
 
@@ -1571,19 +1600,18 @@ impl Mieli {
                 &event,
             );
             match event {
-                FileSystemEvent::Changed(path) => {
-                    changed_paths.insert(path);
-                }
-                FileSystemEvent::Created(path) | FileSystemEvent::Removed(path) => {
-                    if rescan_for_event {
-                        rescan_workspace = true;
-                    }
-                    changed_paths.insert(path);
-                }
                 FileSystemEvent::Error { path, message } => {
                     let path = path.map(|path| path.display().to_string());
                     let message = self.language.file_watcher_error(path.as_deref(), &message);
                     self.notification = Some(Notification::error(message));
+                }
+                event => {
+                    if rescan_for_event {
+                        rescan_workspace = true;
+                    }
+                    if let Some(path) = event.path() {
+                        changed_paths.insert(path.to_path_buf());
+                    }
                 }
             }
         }
@@ -1592,7 +1620,7 @@ impl Mieli {
             self.handle_changed_path(path, cx);
         }
         if rescan_workspace {
-            self.refresh_workspace_tree(cx, false);
+            self.refresh_workspace_tree(cx, WorkspaceRefreshMode::Coalesce);
         }
         should_notify = true;
         if should_notify {
@@ -1706,7 +1734,7 @@ impl Mieli {
             return;
         };
         let tab = &mut self.state.tabs[index];
-        apply_removed_event(&mut tab.dirty, &mut tab.disk_state);
+        mark_deleted(&mut tab.dirty, &mut tab.disk_state);
         tab.autosave_blocked = true;
         tab.autosave_generation = tab.autosave_generation.saturating_add(1);
         self.autosave_tasks.remove(&tab_id);
@@ -1801,7 +1829,7 @@ impl Mieli {
         let generation = self.workspace_scan_generation;
         let cancel = Arc::new(AtomicBool::new(false));
         let worker_cancel = Arc::clone(&cancel);
-        let (sender, receiver) = mpsc::channel();
+        let (sender, receiver) = workspace_scan_channel();
         let worker_root = root.clone();
         let task = cx.spawn(async move |_this, cx| {
             cx.background_executor()
@@ -1861,15 +1889,16 @@ impl Mieli {
         }
     }
 
-    fn refresh_workspace_tree(&mut self, cx: &mut gpui::Context<Self>, force: bool) {
+    fn refresh_workspace_tree(&mut self, cx: &mut gpui::Context<Self>, mode: WorkspaceRefreshMode) {
         let Some(root) = self.state.workspace_root.clone() else {
             return;
         };
-        if !force && self.workspace_scan.is_some() {
+        if matches!(mode, WorkspaceRefreshMode::Coalesce) && self.workspace_scan.is_some() {
             self.workspace_refresh_pending = true;
             return;
         }
         self.workspace_refresh_pending = false;
+        self.workspace_scan_error = None;
         let expansion = crate::ui::file_tree::capture_expansion(&self.state.file_tree);
         self.start_workspace_scan(root, expansion, cx);
     }
@@ -1908,10 +1937,11 @@ impl Mieli {
             }
         }
 
-        if let Some(scan) = self.workspace_scan.as_mut() {
-            if receiver_disconnected && scan.finished.is_none() {
-                scan.finished = Some(Ok(()));
-            }
+        if let Some(scan) = self.workspace_scan.as_mut()
+            && receiver_disconnected
+            && scan.finished.is_none()
+        {
+            scan.finished = Some(workspace_scan_disconnected(&scan.root));
         }
 
         let mut changed = false;
@@ -1957,8 +1987,14 @@ impl Mieli {
         }
 
         self.workspace_scan = None;
-        if let Some(Err(error)) = completed_result {
-            self.notification = Some(Notification::localized_error(&error, self.language));
+        if let Some(result) = completed_result {
+            match result {
+                Ok(()) => self.workspace_scan_error = None,
+                Err(error) => {
+                    self.workspace_scan_error = Some(error.clone());
+                    self.notification = Some(Notification::localized_error(&error, self.language));
+                }
+            }
             changed = true;
         }
 
@@ -2013,19 +2049,13 @@ fn paths_overlap(left: &Path, right: &Path) -> bool {
     left == right || left.starts_with(right) || right.starts_with(left)
 }
 
-fn workspace_root_changed(current: Option<&Path>, next: &Path) -> bool {
-    current != Some(next)
-}
-
 fn workspace_event_requires_rescan(
     workspace_root: Option<&Path>,
     file_tree: &[FileTreeNode],
     event: &FileSystemEvent,
 ) -> bool {
-    let (path, created) = match event {
-        FileSystemEvent::Created(path) => (path.as_path(), true),
-        FileSystemEvent::Removed(path) => (path.as_path(), false),
-        FileSystemEvent::Changed(_) | FileSystemEvent::Error { .. } => return false,
+    let Some((path, created)) = event.workspace_mutation() else {
+        return false;
     };
     let Some(root) = workspace_root else {
         return false;
@@ -2041,11 +2071,16 @@ fn workspace_event_requires_rescan(
 }
 
 fn file_tree_contains_path(nodes: &[FileTreeNode], path: &Path) -> bool {
-    nodes.iter().any(|node| {
-        node.path == path
-            || node.path.starts_with(path)
-            || (node.is_dir && file_tree_contains_path(&node.children, path))
-    })
+    let mut pending = nodes.iter().collect::<Vec<_>>();
+    while let Some(node) = pending.pop() {
+        if node.path == path || node.path.starts_with(path) {
+            return true;
+        }
+        if node.is_dir {
+            pending.extend(node.children.iter());
+        }
+    }
+    false
 }
 
 impl gpui::Render for Mieli {
@@ -2110,13 +2145,14 @@ mod tests {
 
     use super::{
         CloseAction, ConflictDecision, ExternalChangeState, ExternalResolution, LifecycleError,
-        OpenTabPaths, SaveTabState, TabDirection, WindowCloseAction, adjacent_tab_id,
-        advance_modal, apply_conflict_decision, apply_external_change, apply_removed_event,
-        apply_workspace_state, autosave_is_eligible, autosave_transition, clear_shutdown_modal,
-        clear_tab_modal_state, close_action, keep_deleted_open, load_external_change,
+        OpenTabPaths, SaveTabState, TabDirection, WORKSPACE_SCAN_CHANNEL_CAPACITY,
+        WindowCloseAction, WorkspaceScanMessage, adjacent_tab_id, advance_modal,
+        apply_conflict_decision, apply_external_change, apply_workspace_state,
+        autosave_is_eligible, autosave_transition, clear_shutdown_modal, clear_tab_modal_state,
+        close_action, dismiss_modal_state, load_external_change, mark_deleted,
         markdown_destination, queue_modal, save_all_tab_is_writable, save_as_transition,
         save_tab_transition, window_close_action, workspace_event_requires_rescan,
-        workspace_root_changed, workspace_root_for_path,
+        workspace_root_for_path, workspace_scan_channel, workspace_scan_disconnected,
     };
 
     #[test]
@@ -2182,12 +2218,25 @@ mod tests {
         let canonical_file = canonicalize_path(&file).unwrap();
 
         assert_eq!(
-            workspace_root_for_path(&canonical_directory),
+            workspace_root_for_path(&canonical_directory, None),
             Some(canonical_directory)
         );
         assert_eq!(
-            workspace_root_for_path(&canonical_file),
+            workspace_root_for_path(&canonical_file, None),
             canonical_file.parent().map(Path::to_path_buf)
+        );
+    }
+
+    #[test]
+    fn nested_file_in_current_workspace_does_not_replace_workspace_root() {
+        let root = Path::new("/workspace");
+        let nested_file = root.join("docs/README.md");
+        let outside_file = Path::new("/other/README.md");
+
+        assert_eq!(workspace_root_for_path(&nested_file, Some(root)), None);
+        assert_eq!(
+            workspace_root_for_path(outside_file, Some(root)),
+            Some(PathBuf::from("/other"))
         );
     }
 
@@ -2573,11 +2622,11 @@ mod tests {
         let mut dirty = false;
         let mut disk_state = DiskState::Synced;
 
-        apply_removed_event(&mut dirty, &mut disk_state);
+        mark_deleted(&mut dirty, &mut disk_state);
 
         assert_eq!(disk_state, DiskState::Deleted);
         assert!(dirty);
-        keep_deleted_open(&mut dirty, &mut disk_state);
+        mark_deleted(&mut dirty, &mut disk_state);
         assert_eq!(source, "# A");
         assert!(dirty);
         assert_eq!(disk_state, DiskState::Deleted);
@@ -2649,15 +2698,9 @@ mod tests {
     }
 
     #[test]
-    fn cancelling_external_conflict_blocks_later_edits_until_keep_mine() {
+    fn external_conflict_stays_blocked_until_keep_mine() {
         let mut disk_state = DiskState::Conflict;
-        let mut autosave_blocked = false;
-
-        apply_conflict_decision(
-            &mut disk_state,
-            &mut autosave_blocked,
-            ConflictDecision::Cancel,
-        );
+        let mut autosave_blocked = true;
         assert_eq!(disk_state, DiskState::Conflict);
         assert!(autosave_blocked);
         assert!(!autosave_is_eligible(true, true, autosave_blocked, false));
@@ -2672,6 +2715,51 @@ mod tests {
         assert!(!autosave_blocked);
         assert!(autosave_is_eligible(true, true, autosave_blocked, false));
         assert!(save_all_tab_is_writable(true, autosave_blocked));
+    }
+
+    #[test]
+    fn dismissing_external_conflict_keeps_the_resolution_modal_visible() {
+        let mut active = Some(Modal::ExternalConflict(TabId(7)));
+        let mut pending = VecDeque::from([Modal::Shutdown]);
+
+        assert!(!dismiss_modal_state(&mut active, &mut pending));
+        assert_eq!(active, Some(Modal::ExternalConflict(TabId(7))));
+        assert_eq!(pending, VecDeque::from([Modal::Shutdown]));
+    }
+
+    #[test]
+    fn disconnected_workspace_scan_is_reported_as_an_error() {
+        let result = workspace_scan_disconnected(Path::new("/workspace"));
+
+        assert!(matches!(
+            result,
+            Err(FileError::Io {
+                path,
+                operation: "scan",
+                kind: std::io::ErrorKind::Other,
+            }) if path.as_path() == Path::new("/workspace")
+        ));
+    }
+
+    #[test]
+    fn workspace_scan_channel_applies_backpressure() {
+        let (sender, _receiver) = workspace_scan_channel();
+        for _ in 0..WORKSPACE_SCAN_CHANNEL_CAPACITY {
+            sender
+                .try_send(WorkspaceScanMessage::Batch {
+                    generation: 1,
+                    paths: Vec::new(),
+                })
+                .unwrap();
+        }
+
+        assert!(matches!(
+            sender.try_send(WorkspaceScanMessage::Batch {
+                generation: 1,
+                paths: Vec::new(),
+            }),
+            Err(std::sync::mpsc::TrySendError::Full(_))
+        ));
     }
 
     #[test]
@@ -2872,15 +2960,6 @@ mod tests {
         assert_eq!(paths.get(&first_path), Some(first));
         assert_eq!(paths.get(&second_path), Some(second));
         assert_eq!(paths.len(), 2);
-    }
-
-    #[test]
-    fn opening_a_file_in_the_current_workspace_does_not_change_workspace_root() {
-        let root = Path::new("/workspace");
-
-        assert!(!workspace_root_changed(Some(root), root));
-        assert!(workspace_root_changed(Some(Path::new("/other")), root));
-        assert!(workspace_root_changed(None, root));
     }
 
     #[test]

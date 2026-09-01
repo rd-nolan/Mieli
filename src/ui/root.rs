@@ -9,7 +9,11 @@ use bezel::{
     },
 };
 
-use crate::{app::Mieli, i18n::TextKey, state::NotificationKind};
+use crate::{
+    app::Mieli,
+    i18n::{LocalizedMessage, TextKey},
+    state::NotificationKind,
+};
 
 use super::{dialogs, sidebar, tabs};
 
@@ -36,10 +40,7 @@ pub fn render(
     cx: &mut Context<Mieli>,
 ) -> bezel::gpui::Stateful<bezel::gpui::Div> {
     let theme = Theme::of(cx).clone();
-    let has_tabs = view
-        .state
-        .active_tab
-        .is_some_and(|active_id| view.state.tabs.iter().any(|tab| tab.id == active_id));
+    let has_tabs = view.active_tab().is_some();
 
     let mut body = div()
         .id("mieli-workspace")
@@ -170,8 +171,9 @@ pub fn render(
             div()
                 .id("mieli-editor-actions-bar")
                 .flex()
+                .w_full()
                 .items_center()
-                .justify_end()
+                .justify_start()
                 .h(px(PATH_BAR_HEIGHT))
                 .flex_none()
                 .px(px(8.0))
@@ -334,15 +336,17 @@ fn empty_state(
     let language = view.language();
     let workspace_open = view.state.workspace_root.is_some();
     let empty_hint = if view.workspace_scan_loading() {
-        TextKey::LoadingWorkspace
+        language.text(TextKey::LoadingWorkspace).to_owned()
+    } else if let Some(error) = view.workspace_scan_error() {
+        error.localized_message(language)
     } else if workspace_open {
         if view.state.file_tree.is_empty() {
-            TextKey::NoMarkdownFiles
+            language.text(TextKey::NoMarkdownFiles).to_owned()
         } else {
-            TextKey::NoDocumentSelected
+            language.text(TextKey::NoDocumentSelected).to_owned()
         }
     } else {
-        TextKey::WelcomeHint
+        language.text(TextKey::WelcomeHint).to_owned()
     };
     let empty_action = if workspace_open {
         command_button(
@@ -387,7 +391,7 @@ fn empty_state(
                 .text_size(px(13.0))
                 .text_color(theme.text_muted)
                 .text_center()
-                .child(language.text(empty_hint)),
+                .child(empty_hint),
         );
 
     if !view.workspace_scan_loading() {

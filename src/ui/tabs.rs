@@ -198,9 +198,7 @@ fn editor_surface(
     };
 
     let empty_document = view
-        .state
-        .active_tab
-        .and_then(|active_id| view.state.tabs.iter().find(|tab| tab.id == active_id))
+        .active_tab()
         .is_some_and(|tab| tab.path.as_os_str().is_empty() && tab.saved_source.is_empty());
 
     let empty_editor = editor.clone();

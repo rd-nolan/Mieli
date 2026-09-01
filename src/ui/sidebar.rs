@@ -12,7 +12,10 @@ use bezel::{
     },
 };
 
-use crate::{app::Mieli, i18n::TextKey};
+use crate::{
+    app::Mieli,
+    i18n::{LocalizedMessage, TextKey},
+};
 
 use super::{
     file_tree::visible_rows,
@@ -147,13 +150,7 @@ pub fn render(
     width: Pixels,
     cx: &mut Context<Mieli>,
 ) -> bezel::gpui::Stateful<bezel::gpui::Div> {
-    let active_path = view.state.active_tab.and_then(|active_id| {
-        view.state
-            .tabs
-            .iter()
-            .find(|tab| tab.id == active_id)
-            .map(|tab| tab.path.as_path())
-    });
+    let active_path = view.active_tab().map(|tab| tab.path.as_path());
     let rows = visible_rows(&view.state.file_tree, active_path);
     let has_rows = !rows.is_empty();
     let workspace_name = view.state.workspace_root.as_deref().map(path_display_name);
@@ -245,10 +242,14 @@ pub fn render(
         tree = tree.opacity(0.45);
     }
 
-    let empty_message = if !scan_loading && view.state.workspace_root.is_some() && !has_rows {
-        language.text(TextKey::NoMarkdownFiles)
+    let empty_message = if scan_loading {
+        String::new()
+    } else if let Some(error) = view.workspace_scan_error() {
+        error.localized_message(language)
+    } else if view.state.workspace_root.is_some() && !has_rows {
+        language.text(TextKey::NoMarkdownFiles).to_owned()
     } else {
-        ""
+        String::new()
     };
 
     let header = div()
@@ -303,7 +304,7 @@ pub fn render(
                             .p(px(8.0))
                             .text_size(px(11.0))
                             .text_color(theme.text_faint)
-                            .child(empty_message),
+                            .child(empty_message.clone()),
                     )
                 }),
         )

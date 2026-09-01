@@ -1,5 +1,4 @@
 use std::{
-    cmp::Ordering,
     collections::VecDeque,
     fs, io,
     path::{Path, PathBuf},
@@ -8,47 +7,32 @@ use std::{
 
 use crate::{
     file::{FileError, io::is_markdown_file},
-    state::FileTreeNode,
+    state::{FileTreeNode, compare_file_tree_nodes},
 };
 
 pub fn scan_markdown_tree(root: &Path) -> Result<Vec<FileTreeNode>, FileError> {
+    let cancel = AtomicBool::new(false);
+    let mut paths = Vec::new();
+    walk_markdown_paths(root, &cancel, &mut |path| paths.push(path))?;
+
     let mut nodes = Vec::new();
-
-    for entry in fs::read_dir(root).map_err(|error| FileError::from_io(root, "scan", error))? {
-        let entry = entry.map_err(|error| FileError::from_io(root, "scan", error))?;
-        let path = entry.path();
-        let file_type = entry
-            .file_type()
-            .map_err(|error| FileError::from_io(&path, "scan", error))?;
-
-        if file_type.is_dir() {
-            let children = scan_markdown_tree(&path)?;
-            if !children.is_empty() {
-                nodes.push(FileTreeNode {
-                    name: format!("{}/", entry.file_name().to_string_lossy()),
-                    path,
-                    is_dir: true,
-                    expanded: true,
-                    children,
-                });
-            }
-        } else if file_type.is_file() && is_markdown_file(&path) {
-            nodes.push(FileTreeNode {
-                name: entry.file_name().to_string_lossy().into_owned(),
-                path,
-                is_dir: false,
-                expanded: true,
-                children: Vec::new(),
-            });
-        }
+    for path in paths {
+        insert_markdown_path(&mut nodes, root, path);
     }
-
     sort_file_tree_nodes(&mut nodes);
 
     Ok(nodes)
 }
 
 pub(crate) fn scan_markdown_tree_progressive(
+    root: &Path,
+    cancel: &AtomicBool,
+    on_file: &mut impl FnMut(PathBuf),
+) -> Result<(), FileError> {
+    walk_markdown_paths(root, cancel, on_file)
+}
+
+fn walk_markdown_paths(
     root: &Path,
     cancel: &AtomicBool,
     on_file: &mut impl FnMut(PathBuf),
@@ -99,21 +83,70 @@ pub(crate) fn scan_markdown_tree_progressive(
     Ok(())
 }
 
+fn insert_markdown_path(nodes: &mut Vec<FileTreeNode>, root: &Path, path: PathBuf) {
+    let Ok(relative) = path.strip_prefix(root) else {
+        return;
+    };
+    let components = relative
+        .components()
+        .map(|component| component.as_os_str().to_os_string())
+        .collect::<Vec<_>>();
+    if components.is_empty() {
+        return;
+    }
+
+    let mut current_nodes = nodes;
+    let mut parent = root.to_path_buf();
+    for (index, component) in components.iter().enumerate() {
+        let node_path = parent.join(component);
+        if index + 1 == components.len() {
+            if current_nodes.iter().all(|node| node.path != node_path) {
+                current_nodes.push(FileTreeNode {
+                    name: component.to_string_lossy().into_owned(),
+                    path: node_path,
+                    is_dir: false,
+                    expanded: true,
+                    children: Vec::new(),
+                });
+            }
+            return;
+        }
+
+        let directory_index = current_nodes
+            .iter()
+            .position(|node| node.is_dir && node.path == node_path);
+        let directory_index = match directory_index {
+            Some(index) => index,
+            None => {
+                current_nodes.push(FileTreeNode {
+                    name: format!("{}/", component.to_string_lossy()),
+                    path: node_path.clone(),
+                    is_dir: true,
+                    expanded: true,
+                    children: Vec::new(),
+                });
+                current_nodes.len() - 1
+            }
+        };
+        parent = node_path;
+        current_nodes = &mut current_nodes[directory_index].children;
+    }
+}
+
 fn is_transient_scan_error(error: &io::Error) -> bool {
     error.kind() == io::ErrorKind::NotFound
 }
 
 fn sort_file_tree_nodes(nodes: &mut [FileTreeNode]) {
-    nodes.sort_by(compare_file_tree_nodes);
-}
-
-fn compare_file_tree_nodes(left: &FileTreeNode, right: &FileTreeNode) -> Ordering {
-    let left_rank = if left.is_dir { 0 } else { 1 };
-    let right_rank = if right.is_dir { 0 } else { 1 };
-    left_rank
-        .cmp(&right_rank)
-        .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
-        .then_with(|| left.path.cmp(&right.path))
+    let mut pending = vec![nodes];
+    while let Some(nodes) = pending.pop() {
+        nodes.sort_by(compare_file_tree_nodes);
+        for node in nodes.iter_mut() {
+            if node.is_dir {
+                pending.push(node.children.as_mut_slice());
+            }
+        }
+    }
 }
 
 #[cfg(test)]

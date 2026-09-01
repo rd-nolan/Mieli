@@ -24,6 +24,23 @@ pub enum FileSystemEvent {
     },
 }
 
+impl FileSystemEvent {
+    pub(crate) fn path(&self) -> Option<&Path> {
+        match self {
+            Self::Changed(path) | Self::Created(path) | Self::Removed(path) => Some(path),
+            Self::Error { path, .. } => path.as_deref(),
+        }
+    }
+
+    pub(crate) fn workspace_mutation(&self) -> Option<(&Path, bool)> {
+        match self {
+            Self::Created(path) => Some((path, true)),
+            Self::Removed(path) => Some((path, false)),
+            Self::Changed(_) | Self::Error { .. } => None,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum WatchError {
     MissingParent {
