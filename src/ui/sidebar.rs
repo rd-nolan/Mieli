@@ -2,16 +2,117 @@ use std::{path::Path, time::Duration};
 
 use bezel::{
     gpui::{
-        Animation, AnimationExt, Context, ElementId, IntoElement, Pixels, SharedString, div,
-        ease_out_quint, prelude::*, px,
+        Animation, AnimationExt, Context, ElementId, FontWeight, IntoElement, Pixels, SharedString,
+        div, ease_out_quint, prelude::*, px,
     },
     theme::Theme,
-    ui::icons::{self, icon},
+    ui::{
+        icons::{self, icon},
+        tooltip::Tooltip,
+    },
 };
 
 use crate::{app::Mieli, i18n::TextKey};
 
 use super::{file_tree::visible_rows, root::PANEL_HEADER_HEIGHT};
+
+pub(crate) fn render_actions(
+    view: &mut Mieli,
+    theme: &Theme,
+    cx: &mut Context<Mieli>,
+) -> bezel::gpui::Stateful<bezel::gpui::Div> {
+    let language = view.language();
+    let mut sidebar_button = sidebar_action_button(
+        cx,
+        theme,
+        "mieli-sidebar-toggle",
+        language.sidebar_toggle(view.state.sidebar_visible),
+        icons::SIDEBAR_MINIMALISTIC_LEFT,
+        |this, cx| {
+            this.toggle_sidebar(cx);
+        },
+    );
+    if view.state.sidebar_visible {
+        sidebar_button = sidebar_button.bg(theme.element_active);
+    }
+
+    let actions = div()
+        .flex()
+        .items_center()
+        .gap(px(2.0))
+        .child(sidebar_action_button(
+            cx,
+            theme,
+            "mieli-button-open",
+            language.text(TextKey::Open),
+            icons::FOLDER_WITH_FILES,
+            |this, cx| {
+                let _ = this.open_path_dialog(cx);
+            },
+        ))
+        .child(language_button(view, theme, cx));
+
+    div()
+        .id("mieli-sidebar-actions")
+        .flex()
+        .items_center()
+        .justify_between()
+        .flex_1()
+        .min_w(px(0.0))
+        .child(sidebar_button)
+        .child(actions)
+}
+
+fn sidebar_action_button(
+    cx: &mut Context<Mieli>,
+    theme: &Theme,
+    id: &'static str,
+    label: &'static str,
+    icon_path: &'static str,
+    action: impl Fn(&mut Mieli, &mut Context<Mieli>) + 'static,
+) -> bezel::gpui::Stateful<bezel::gpui::Div> {
+    div()
+        .id(id)
+        .flex()
+        .items_center()
+        .justify_center()
+        .size(px(26.0))
+        .rounded(px(Theme::control_radius()))
+        .text_size(px(12.0))
+        .text_color(theme.text_muted)
+        .cursor_pointer()
+        .tooltip(move |window, cx| Tooltip::text(label, window, cx))
+        .hover(|style| style.bg(theme.element_hover).text_color(theme.text))
+        .on_click(cx.listener(move |this, _, _, cx| action(this, cx)))
+        .child(icon(icon_path).size(px(14.0)).text_color(theme.text_muted))
+}
+
+fn language_button(
+    view: &mut Mieli,
+    theme: &Theme,
+    cx: &mut Context<Mieli>,
+) -> bezel::gpui::Stateful<bezel::gpui::Div> {
+    let language = view.language();
+    div()
+        .id("mieli-language-toggle")
+        .flex()
+        .items_center()
+        .justify_center()
+        .min_w(px(30.0))
+        .h(px(26.0))
+        .px(px(5.0))
+        .rounded(px(Theme::control_radius()))
+        .font_weight(FontWeight::MEDIUM)
+        .text_size(px(11.0))
+        .text_color(theme.text_muted)
+        .cursor_pointer()
+        .tooltip(move |window, cx| {
+            Tooltip::text(language.text(TextKey::SwitchLanguage), window, cx)
+        })
+        .hover(|style| style.bg(theme.element_hover).text_color(theme.text))
+        .on_click(cx.listener(|this, _, _, cx| this.toggle_language(cx)))
+        .child(language.short_label())
+}
 
 pub fn render(
     view: &mut Mieli,
@@ -123,7 +224,7 @@ pub fn render(
         ""
     };
 
-    let mut header = div()
+    let header = div()
         .id("mieli-sidebar-header")
         .flex()
         .items_center()
@@ -150,24 +251,6 @@ pub fn render(
                         .unwrap_or_else(|| language.text(TextKey::Workspace).to_string()),
                 ),
         );
-
-    if workspace_name.is_none() {
-        header = header.child(
-            div()
-                .id("mieli-sidebar-open")
-                .px(px(5.0))
-                .py(px(2.0))
-                .rounded(px(Theme::control_radius()))
-                .text_size(px(11.0))
-                .text_color(theme.accent)
-                .cursor_pointer()
-                .hover(|style| style.bg(theme.element_hover))
-                .on_click(cx.listener(|this, _, _, cx| {
-                    let _ = this.open_path_dialog(cx);
-                }))
-                .child(language.text(TextKey::Open)),
-        );
-    }
 
     div()
         .id("mieli-sidebar")
@@ -196,6 +279,19 @@ pub fn render(
                             .child(empty_message),
                     )
                 }),
+        )
+        .child(
+            div()
+                .id("mieli-sidebar-footer")
+                .flex()
+                .items_center()
+                .h(px(34.0))
+                .flex_none()
+                .px(px(8.0))
+                .border_t_1()
+                .border_color(theme.border)
+                .bg(theme.surface)
+                .child(render_actions(view, theme, cx)),
         )
 }
 

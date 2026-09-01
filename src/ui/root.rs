@@ -1,14 +1,10 @@
-use std::sync::Arc;
-
 use bezel::{
     gpui::{
-        Context, DragMoveEvent, FontWeight, Image, ImageFormat, MouseButton, Pixels, Window, div,
-        img, prelude::*, px, white,
+        Context, DragMoveEvent, FontWeight, MouseButton, Pixels, Window, div, prelude::*, px, white,
     },
     theme::Theme,
     ui::{
         icons::{self, icon},
-        tooltip::Tooltip,
         widgets::{ButtonStyle, SplitDrag},
     },
 };
@@ -40,7 +36,6 @@ pub fn render(
     cx: &mut Context<Mieli>,
 ) -> bezel::gpui::Stateful<bezel::gpui::Div> {
     let theme = Theme::of(cx).clone();
-    let toolbar = toolbar(view, &theme, cx);
     let has_tabs = view
         .state
         .active_tab
@@ -166,9 +161,24 @@ pub fn render(
         .flex()
         .flex_col()
         .bg(theme.bg)
-        .text_color(theme.text)
-        .child(toolbar)
-        .child(body);
+        .text_color(theme.text);
+
+    if !view.state.sidebar_visible {
+        root = root.child(
+            div()
+                .id("mieli-toolbar")
+                .flex()
+                .items_center()
+                .flex_none()
+                .h(px(34.0))
+                .border_b_1()
+                .border_color(theme.border)
+                .bg(theme.surface)
+                .child(sidebar::render_actions(view, &theme, cx)),
+        );
+    }
+
+    root = root.child(body);
 
     if let Some(notification) = view.notification.as_ref() {
         let is_success = matches!(notification.kind, NotificationKind::Success);
@@ -265,155 +275,6 @@ pub fn render(
     }
 
     root
-}
-
-fn toolbar(
-    view: &mut Mieli,
-    theme: &Theme,
-    cx: &mut Context<Mieli>,
-) -> bezel::gpui::Stateful<bezel::gpui::Div> {
-    let language = view.language();
-    let sidebar_label = language.sidebar_toggle(view.state.sidebar_visible);
-
-    let mut sidebar_button = toolbar_icon_button(
-        cx,
-        theme,
-        "mieli-sidebar-toggle",
-        sidebar_label,
-        icons::SIDEBAR_MINIMALISTIC_LEFT,
-        ButtonStyle::Ghost,
-        |this, cx| {
-            this.toggle_sidebar(cx);
-        },
-    );
-    if view.state.sidebar_visible {
-        sidebar_button = sidebar_button.bg(theme.element_active);
-    }
-
-    let bar = div()
-        .id("mieli-toolbar")
-        .flex()
-        .items_center()
-        .flex_none()
-        .gap(px(2.0))
-        .px(px(8.0))
-        .h(px(34.0))
-        .border_b_1()
-        .border_color(theme.border)
-        .bg(theme.surface)
-        .child(sidebar_button)
-        .child(brand(theme))
-        .child(div().flex_1());
-
-    let actions = div()
-        .flex()
-        .items_center()
-        .gap(px(2.0))
-        .child(toolbar_icon_button(
-            cx,
-            theme,
-            "mieli-button-open",
-            language.text(TextKey::Open),
-            icons::FOLDER_WITH_FILES,
-            ButtonStyle::Ghost,
-            |this, cx| {
-                let _ = this.open_path_dialog(cx);
-            },
-        ))
-        .child(language_button(view, theme, cx));
-
-    bar.child(actions)
-}
-
-fn language_button(
-    view: &mut Mieli,
-    theme: &Theme,
-    cx: &mut Context<Mieli>,
-) -> bezel::gpui::Stateful<bezel::gpui::Div> {
-    let language = view.language();
-    div()
-        .id("mieli-language-toggle")
-        .flex()
-        .items_center()
-        .justify_center()
-        .min_w(px(30.0))
-        .h(px(26.0))
-        .px(px(5.0))
-        .rounded(px(Theme::control_radius()))
-        .font_weight(FontWeight::MEDIUM)
-        .text_size(px(11.0))
-        .text_color(theme.text_muted)
-        .cursor_pointer()
-        .tooltip(move |window, cx| {
-            Tooltip::text(language.text(TextKey::SwitchLanguage), window, cx)
-        })
-        .hover(|style| style.bg(theme.element_hover).text_color(theme.text))
-        .on_click(cx.listener(|this, _, _, cx| this.toggle_language(cx)))
-        .child(language.short_label())
-}
-
-fn brand(theme: &Theme) -> bezel::gpui::Stateful<bezel::gpui::Div> {
-    div()
-        .id("mieli-brand")
-        .flex()
-        .items_center()
-        .gap(px(5.0))
-        .px(px(2.0))
-        .child(
-            div()
-                .size(px(20.0))
-                .rounded(px(5.0))
-                .overflow_hidden()
-                .child(app_logo(20.0)),
-        )
-        .child(
-            div()
-                .text_size(px(12.0))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme.text)
-                .child("Mieli"),
-        )
-}
-
-fn toolbar_icon_button(
-    cx: &mut Context<Mieli>,
-    theme: &Theme,
-    id: &'static str,
-    label: &'static str,
-    icon_path: &'static str,
-    style: ButtonStyle,
-    action: impl Fn(&mut Mieli, &mut Context<Mieli>) + 'static,
-) -> bezel::gpui::Stateful<bezel::gpui::Div> {
-    let (background, foreground) = match style {
-        ButtonStyle::Ghost => (None, theme.text_muted),
-        ButtonStyle::Prominent => (Some(theme.accent), theme.on_accent),
-        ButtonStyle::Destructive => (Some(theme.danger_strong), white()),
-    };
-
-    let mut button = div()
-        .id(id)
-        .flex()
-        .items_center()
-        .justify_center()
-        .size(px(26.0))
-        .rounded(px(Theme::control_radius()))
-        .text_size(px(12.0))
-        .text_color(foreground)
-        .cursor_pointer()
-        .tooltip(move |window, cx| Tooltip::text(label, window, cx))
-        .on_click(cx.listener(move |this, _, _, cx| action(this, cx)))
-        .child(icon(icon_path).size(px(14.0)).text_color(foreground));
-
-    if let Some(background) = background {
-        button = button.bg(background);
-    }
-
-    match style {
-        ButtonStyle::Ghost => button.hover(|style| style.bg(theme.element_hover)),
-        ButtonStyle::Prominent | ButtonStyle::Destructive => {
-            button.hover(|style| style.opacity(0.9))
-        }
-    }
 }
 
 fn command_button(
@@ -548,14 +409,6 @@ fn empty_state(
         .p(px(24.0))
         .bg(theme.bg)
         .child(welcome_card)
-}
-
-fn app_logo(size: f32) -> bezel::gpui::Img {
-    img(Arc::new(Image::from_bytes(
-        ImageFormat::Png,
-        include_bytes!("../../resources/mieli_logo_1024x1024.png").to_vec(),
-    )))
-    .size(px(size))
 }
 
 #[cfg(test)]
