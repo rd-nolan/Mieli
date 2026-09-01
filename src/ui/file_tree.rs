@@ -34,6 +34,18 @@ pub fn visible_rows(nodes: &[FileTreeNode], active_path: Option<&Path>) -> Vec<T
     rows
 }
 
+pub fn first_markdown_path(nodes: &[FileTreeNode]) -> Option<PathBuf> {
+    let mut pending = nodes.iter().rev().collect::<Vec<_>>();
+    while let Some(node) = pending.pop() {
+        if node.is_dir {
+            pending.extend(node.children.iter().rev());
+        } else if crate::file::io::is_markdown_file(&node.path) {
+            return Some(node.path.clone());
+        }
+    }
+    None
+}
+
 pub fn preserve_expansion(previous: &[FileTreeNode], refreshed: &mut [FileTreeNode]) {
     let expansion = capture_expansion(previous);
     let mut pending = vec![refreshed];
@@ -166,8 +178,8 @@ mod tests {
     use crate::state::FileTreeNode;
 
     use super::{
-        capture_expansion, insert_markdown_paths, preserve_expansion, toggle_expansion,
-        visible_rows,
+        capture_expansion, first_markdown_path, insert_markdown_paths, preserve_expansion,
+        toggle_expansion, visible_rows,
     };
 
     #[test]
@@ -249,6 +261,14 @@ mod tests {
             vec!["a.md", "b.md"]
         );
         assert_eq!(tree[1].children.len(), 2);
+    }
+
+    #[test]
+    fn first_markdown_path_follows_tree_order_even_when_a_directory_is_collapsed() {
+        let mut tree = sample_tree(false);
+        tree[0].expanded = false;
+
+        assert_eq!(first_markdown_path(&tree), Some(path("docs/api.md")));
     }
 
     #[test]

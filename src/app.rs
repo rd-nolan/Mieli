@@ -600,6 +600,7 @@ struct WorkspaceScan {
     pending_paths: VecDeque<PathBuf>,
     finished: Option<Result<(), FileError>>,
     showing_previous_tree: bool,
+    auto_open_first_file: bool,
 }
 
 fn workspace_scan_channel() -> (
@@ -724,6 +725,7 @@ impl Mieli {
     }
 
     pub fn new_tab(&mut self, cx: &mut gpui::Context<Self>) -> TabId {
+        self.cancel_pending_workspace_auto_open();
         let tab_id = self.open_tab_paths.allocate();
         let source = String::new();
         let (editor, scroll) = Self::create_editor(tab_id, source.clone(), cx);
@@ -757,6 +759,9 @@ impl Mieli {
         path: PathBuf,
         cx: &mut gpui::Context<Self>,
     ) -> Result<TabId, LifecycleError> {
+        if let Some(scan) = self.workspace_scan.as_mut() {
+            scan.auto_open_first_file = false;
+        }
         self.file_result(validate_markdown_path(&path))?;
         let canonical = self.file_result(canonicalize_path(&path))?;
         if let Some(tab_id) = self.open_tab_paths.get(&canonical) {
@@ -849,7 +854,7 @@ impl Mieli {
         if let Some(parent) =
             workspace_root_for_path(&canonical, self.state.workspace_root.as_deref())
         {
-            self.open_folder(parent, cx)?;
+            self.open_folder_with_options(parent, false, cx)?;
         }
         self.open_file(canonical, cx).map(|_| ())
     }
@@ -936,6 +941,15 @@ impl Mieli {
         root: PathBuf,
         cx: &mut gpui::Context<Self>,
     ) -> Result<(), LifecycleError> {
+        self.open_folder_with_options(root, true, cx)
+    }
+
+    fn open_folder_with_options(
+        &mut self,
+        root: PathBuf,
+        auto_open_first_file: bool,
+        cx: &mut gpui::Context<Self>,
+    ) -> Result<(), LifecycleError> {
         let canonical = self.file_result(canonicalize_path(&root))?;
         self.file_result(
             fs::read_dir(&canonical)
@@ -965,12 +979,13 @@ impl Mieli {
         self.workspace_scan_error = None;
         self.watcher = Some(watcher);
         self.prune_security_scopes();
-        self.start_workspace_scan(canonical, expansion, cx);
+        self.start_workspace_scan(canonical, expansion, auto_open_first_file, cx);
         cx.notify();
         Ok(())
     }
 
     pub fn switch_tab(&mut self, tab_id: TabId, cx: &mut gpui::Context<Self>) -> bool {
+        self.cancel_pending_workspace_auto_open();
         if self.tab_index(tab_id).is_none() {
             return false;
         }
@@ -1822,6 +1837,7 @@ impl Mieli {
         &mut self,
         root: PathBuf,
         expansion: HashMap<PathBuf, bool>,
+        auto_open_first_file: bool,
         cx: &mut gpui::Context<Self>,
     ) {
         self.cancel_workspace_scan();
@@ -1880,12 +1896,19 @@ impl Mieli {
             pending_paths: VecDeque::new(),
             finished: None,
             showing_previous_tree: true,
+            auto_open_first_file,
         });
     }
 
     fn cancel_workspace_scan(&mut self) {
         if let Some(scan) = self.workspace_scan.take() {
             scan.cancel.store(true, AtomicOrdering::Relaxed);
+        }
+    }
+
+    fn cancel_pending_workspace_auto_open(&mut self) {
+        if let Some(scan) = self.workspace_scan.as_mut() {
+            scan.auto_open_first_file = false;
         }
     }
 
@@ -1900,7 +1923,7 @@ impl Mieli {
         self.workspace_refresh_pending = false;
         self.workspace_scan_error = None;
         let expansion = crate::ui::file_tree::capture_expansion(&self.state.file_tree);
-        self.start_workspace_scan(root, expansion, cx);
+        self.start_workspace_scan(root, expansion, false, cx);
     }
 
     fn poll_workspace_scan(&mut self, cx: &mut gpui::Context<Self>) -> bool {
@@ -1947,6 +1970,8 @@ impl Mieli {
         let mut changed = false;
         let mut completed_root = None;
         let mut completed_result = None;
+        let mut first_file_to_open = None;
+        let mut auto_open_first_file = false;
         let mut completed = false;
         if let Some(scan) = self.workspace_scan.as_mut() {
             if !scan.pending_paths.is_empty() {
@@ -1976,6 +2001,11 @@ impl Mieli {
                     scan.showing_previous_tree = false;
                     changed = true;
                 }
+                auto_open_first_file = scan.auto_open_first_file;
+                if auto_open_first_file {
+                    first_file_to_open =
+                        crate::ui::file_tree::first_markdown_path(&self.state.file_tree);
+                }
                 completed_root = Some(scan.root.clone());
                 completed_result = scan.finished.take();
                 completed = true;
@@ -1989,7 +2019,12 @@ impl Mieli {
         self.workspace_scan = None;
         if let Some(result) = completed_result {
             match result {
-                Ok(()) => self.workspace_scan_error = None,
+                Ok(()) => {
+                    self.workspace_scan_error = None;
+                    if auto_open_first_file && let Some(path) = first_file_to_open {
+                        let _ = self.open_file(path, cx);
+                    }
+                }
                 Err(error) => {
                     self.workspace_scan_error = Some(error.clone());
                     self.notification = Some(Notification::localized_error(&error, self.language));
@@ -2002,7 +2037,7 @@ impl Mieli {
             self.workspace_refresh_pending = false;
             if let Some(root) = completed_root {
                 let expansion = crate::ui::file_tree::capture_expansion(&self.state.file_tree);
-                self.start_workspace_scan(root, expansion, cx);
+                self.start_workspace_scan(root, expansion, false, cx);
                 changed = true;
             }
         }
