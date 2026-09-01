@@ -1,4 +1,10 @@
-use std::{cmp::Ordering, fs, path::Path};
+use std::{
+    cmp::Ordering,
+    collections::VecDeque,
+    fs,
+    path::{Path, PathBuf},
+    sync::atomic::{AtomicBool, Ordering as AtomicOrdering},
+};
 
 use crate::{
     file::{FileError, io::is_markdown_file},
@@ -42,6 +48,48 @@ pub fn scan_markdown_tree(root: &Path) -> Result<Vec<FileTreeNode>, FileError> {
     Ok(nodes)
 }
 
+pub(crate) fn scan_markdown_tree_progressive(
+    root: &Path,
+    cancel: &AtomicBool,
+    on_file: &mut impl FnMut(PathBuf),
+) -> Result<(), FileError> {
+    let mut directories = VecDeque::from([root.to_path_buf()]);
+
+    while let Some(directory) = directories.pop_front() {
+        if cancel.load(AtomicOrdering::Relaxed) {
+            return Ok(());
+        }
+
+        let mut entries = fs::read_dir(&directory)
+            .map_err(|error| FileError::from_io(&directory, "scan", error))?;
+        loop {
+            if cancel.load(AtomicOrdering::Relaxed) {
+                return Ok(());
+            }
+
+            let Some(entry) = entries.next() else {
+                break;
+            };
+            let entry = entry.map_err(|error| FileError::from_io(&directory, "scan", error))?;
+            let path = entry.path();
+            if cancel.load(AtomicOrdering::Relaxed) {
+                return Ok(());
+            }
+
+            let file_type = entry
+                .file_type()
+                .map_err(|error| FileError::from_io(&path, "scan", error))?;
+            if file_type.is_dir() {
+                directories.push_back(path);
+            } else if file_type.is_file() && is_markdown_file(&path) {
+                on_file(path);
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn sort_file_tree_nodes(nodes: &mut [FileTreeNode]) {
     nodes.sort_by(compare_file_tree_nodes);
 }
@@ -60,13 +108,13 @@ mod tests {
     use std::{
         fs,
         path::{Path, PathBuf},
-        sync::atomic::{AtomicU64, Ordering},
+        sync::atomic::{AtomicBool, AtomicU64, Ordering},
         time::{SystemTime, UNIX_EPOCH},
     };
 
     use crate::state::FileTreeNode;
 
-    use super::{scan_markdown_tree, sort_file_tree_nodes};
+    use super::{scan_markdown_tree, scan_markdown_tree_progressive, sort_file_tree_nodes};
 
     #[test]
     fn scanner_keeps_only_directories_with_markdown_descendants() {
@@ -124,6 +172,63 @@ mod tests {
                 PathBuf::from("/tmp/beta.MD"),
             ]
         );
+    }
+
+    #[test]
+    fn progressive_scanner_reports_only_markdown_files() {
+        let temp = TempDir::root_with(&[
+            "README.md",
+            "docs/api.md",
+            "docs/image.png",
+            "assets/image.png",
+            "notes.txt",
+        ]);
+        let cancel = AtomicBool::new(false);
+        let mut files = Vec::new();
+
+        scan_markdown_tree_progressive(temp.path(), &cancel, &mut |path| files.push(path)).unwrap();
+
+        files.sort();
+        assert_eq!(
+            files,
+            vec![
+                temp.path().join("README.md"),
+                temp.path().join("docs/api.md")
+            ]
+        );
+    }
+
+    #[test]
+    fn progressive_scanner_stops_after_cancellation() {
+        let temp = TempDir::root_with(&["first.md", "second.md", "third.md"]);
+        let cancel = AtomicBool::new(false);
+        let mut files = Vec::new();
+
+        scan_markdown_tree_progressive(temp.path(), &cancel, &mut |path| {
+            files.push(path);
+            cancel.store(true, Ordering::Relaxed);
+        })
+        .unwrap();
+
+        assert_eq!(files.len(), 1);
+    }
+
+    #[test]
+    fn progressive_scanner_handles_deep_directories_iteratively() {
+        let temp = TempDir::new();
+        let mut directory = temp.path().to_path_buf();
+        for _ in 0..128 {
+            directory.push("d");
+            fs::create_dir(&directory).unwrap();
+        }
+        let file = directory.join("deep.md");
+        fs::write(&file, "deep").unwrap();
+        let cancel = AtomicBool::new(false);
+        let mut files = Vec::new();
+
+        scan_markdown_tree_progressive(temp.path(), &cancel, &mut |path| files.push(path)).unwrap();
+
+        assert_eq!(files, vec![file]);
     }
 
     fn tree_names(nodes: &[FileTreeNode]) -> Vec<String> {

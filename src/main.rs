@@ -31,6 +31,7 @@ fn open_main_window(
                     gpui::size(gpui::px(1100.0), gpui::px(760.0)),
                     cx,
                 ))),
+                window_min_size: Some(gpui::size(gpui::px(709.0), gpui::px(480.0))),
                 ..Default::default()
             },
             move |window, cx| {

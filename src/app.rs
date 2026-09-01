@@ -1,8 +1,13 @@
 use std::{
     collections::{BTreeSet, HashMap, VecDeque},
     ffi::OsString,
-    fmt,
+    fmt, fs,
     path::{Path, PathBuf},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering as AtomicOrdering},
+        mpsc::{self, Receiver, TryRecvError},
+    },
     time::Duration,
 };
 
@@ -19,7 +24,7 @@ use crate::{
             canonicalize_path, disk_version, is_markdown_file, read_markdown,
             validate_markdown_path, write_markdown,
         },
-        scanner::scan_markdown_tree,
+        scanner::scan_markdown_tree_progressive,
         watcher::{FileSystemEvent, FileWatcherService, WatchError},
     },
     i18n::{Language, LocalizedMessage, TextKey},
@@ -564,8 +569,36 @@ impl From<WatchError> for LifecycleError {
     }
 }
 
+const WORKSPACE_SCAN_BATCH_SIZE: usize = 64;
+const MAX_WORKSPACE_SCAN_PATHS_PER_POLL: usize = 256;
+
+enum WorkspaceScanMessage {
+    Batch {
+        generation: u64,
+        paths: Vec<PathBuf>,
+    },
+    Finished {
+        generation: u64,
+        result: Result<(), FileError>,
+    },
+}
+
+struct WorkspaceScan {
+    root: PathBuf,
+    generation: u64,
+    receiver: Receiver<WorkspaceScanMessage>,
+    cancel: Arc<AtomicBool>,
+    _task: gpui::Task<()>,
+    expansion: HashMap<PathBuf, bool>,
+    pending_paths: VecDeque<PathBuf>,
+    finished: Option<Result<(), FileError>>,
+    showing_previous_tree: bool,
+}
+
 pub struct Mieli {
     language: Language,
+    pub(crate) sidebar_width: gpui::Pixels,
+    pub(crate) sidebar_dragging: bool,
     pub state: AppState,
     pub modal: Option<Modal>,
     pub notification: Option<Notification>,
@@ -575,6 +608,9 @@ pub struct Mieli {
     autosave_tasks: HashMap<TabId, gpui::Task<()>>,
     editor_scrolls: HashMap<TabId, gpui::ScrollHandle>,
     open_tab_paths: OpenTabPaths,
+    workspace_scan: Option<WorkspaceScan>,
+    workspace_scan_generation: u64,
+    workspace_refresh_pending: bool,
     allow_quit: bool,
     security_scopes: Vec<(PathBuf, crate::file::dialog::SecurityScopedResource)>,
 }
@@ -603,6 +639,8 @@ impl Mieli {
         });
         let this = Self {
             language,
+            sidebar_width: gpui::px(224.0),
+            sidebar_dragging: false,
             state: AppState {
                 workspace_root: None,
                 sidebar_visible: false,
@@ -620,6 +658,9 @@ impl Mieli {
             autosave_tasks: HashMap::new(),
             editor_scrolls: HashMap::new(),
             open_tab_paths: OpenTabPaths::default(),
+            workspace_scan: None,
+            workspace_scan_generation: 0,
+            workspace_refresh_pending: false,
             allow_quit: false,
             security_scopes: Vec::new(),
         };
@@ -629,6 +670,16 @@ impl Mieli {
 
     pub(crate) fn language(&self) -> Language {
         self.language
+    }
+
+    pub(crate) fn workspace_scan_loading(&self) -> bool {
+        self.workspace_scan.is_some()
+    }
+
+    pub(crate) fn workspace_scan_showing_previous_tree(&self) -> bool {
+        self.workspace_scan
+            .as_ref()
+            .is_some_and(|scan| scan.showing_previous_tree)
     }
 
     pub fn toggle_language(&mut self, cx: &mut gpui::Context<Self>) {
@@ -837,7 +888,7 @@ impl Mieli {
         self.state.tabs[index].autosave_blocked = false;
         self.autosave_tasks.remove(&tab_id);
         self.clear_tab_modal(tab_id);
-        self.refresh_workspace_tree();
+        self.refresh_workspace_tree(cx, true);
         self.refresh_watcher();
         cx.notify();
         Ok(canonical)
@@ -849,24 +900,34 @@ impl Mieli {
         cx: &mut gpui::Context<Self>,
     ) -> Result<(), LifecycleError> {
         let canonical = self.file_result(canonicalize_path(&root))?;
-        let mut tree = self.file_result(scan_markdown_tree(&canonical))?;
+        self.file_result(
+            fs::read_dir(&canonical)
+                .map(|_| ())
+                .map_err(|error| FileError::from_io(&canonical, "scan", error)),
+        )?;
         let watcher = match self.build_watcher(Some(&canonical)) {
             Ok(watcher) => watcher,
             Err(error) => return self.lifecycle_failure(error.into()),
         };
 
-        if self.state.workspace_root.as_ref() == Some(&canonical) {
-            crate::ui::file_tree::preserve_expansion(&self.state.file_tree, &mut tree);
-        }
+        let expansion = if self.state.workspace_root.as_ref() == Some(&canonical) {
+            crate::ui::file_tree::capture_expansion(&self.state.file_tree)
+        } else {
+            HashMap::new()
+        };
+        self.cancel_workspace_scan();
+        self.workspace_refresh_pending = false;
+        let previous_tree = std::mem::take(&mut self.state.file_tree);
         apply_workspace_state(
             &mut self.state.workspace_root,
             &mut self.state.file_tree,
-            canonical,
-            tree,
+            canonical.clone(),
+            previous_tree,
         );
         self.state.sidebar_visible = true;
         self.watcher = Some(watcher);
         self.prune_security_scopes();
+        self.start_workspace_scan(canonical, expansion, cx);
         cx.notify();
         Ok(())
     }
@@ -1203,7 +1264,7 @@ impl Mieli {
     }
 
     pub fn refresh_tree(&mut self, cx: &mut gpui::Context<Self>) {
-        self.refresh_workspace_tree();
+        self.refresh_workspace_tree(cx, true);
         cx.notify();
     }
 
@@ -1486,12 +1547,16 @@ impl Mieli {
     }
 
     fn poll_watcher(&mut self, cx: &mut gpui::Context<Self>) {
+        let mut should_notify = self.poll_workspace_scan(cx);
         let events = self
             .watcher
             .as_ref()
             .map(FileWatcherService::drain)
             .unwrap_or_default();
         if events.is_empty() {
+            if should_notify {
+                cx.notify();
+            }
             return;
         }
 
@@ -1525,9 +1590,12 @@ impl Mieli {
             self.handle_changed_path(path, cx);
         }
         if rescan_workspace {
-            self.refresh_workspace_tree();
+            self.refresh_workspace_tree(cx, false);
         }
-        cx.notify();
+        should_notify = true;
+        if should_notify {
+            cx.notify();
+        }
     }
 
     fn handle_changed_path(&mut self, path: PathBuf, cx: &mut gpui::Context<Self>) {
@@ -1720,19 +1788,187 @@ impl Mieli {
         });
     }
 
-    fn refresh_workspace_tree(&mut self) {
+    fn start_workspace_scan(
+        &mut self,
+        root: PathBuf,
+        expansion: HashMap<PathBuf, bool>,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        self.cancel_workspace_scan();
+        self.workspace_scan_generation = self.workspace_scan_generation.saturating_add(1);
+        let generation = self.workspace_scan_generation;
+        let cancel = Arc::new(AtomicBool::new(false));
+        let worker_cancel = Arc::clone(&cancel);
+        let (sender, receiver) = mpsc::channel();
+        let worker_root = root.clone();
+        let task = cx.spawn(async move |_this, cx| {
+            cx.background_executor()
+                .spawn(async move {
+                    let mut batch = Vec::with_capacity(WORKSPACE_SCAN_BATCH_SIZE);
+                    let mut send_failed = false;
+                    let result =
+                        scan_markdown_tree_progressive(&worker_root, &worker_cancel, &mut |path| {
+                            if send_failed {
+                                return;
+                            }
+                            batch.push(path);
+                            if batch.len() == WORKSPACE_SCAN_BATCH_SIZE {
+                                let paths = std::mem::take(&mut batch);
+                                if sender
+                                    .send(WorkspaceScanMessage::Batch { generation, paths })
+                                    .is_err()
+                                {
+                                    worker_cancel.store(true, AtomicOrdering::Relaxed);
+                                    send_failed = true;
+                                }
+                            }
+                        });
+                    if worker_cancel.load(AtomicOrdering::Relaxed) || send_failed {
+                        return;
+                    }
+                    if !batch.is_empty()
+                        && sender
+                            .send(WorkspaceScanMessage::Batch {
+                                generation,
+                                paths: batch,
+                            })
+                            .is_err()
+                    {
+                        return;
+                    }
+                    let _ = sender.send(WorkspaceScanMessage::Finished { generation, result });
+                })
+                .await;
+        });
+        self.workspace_scan = Some(WorkspaceScan {
+            root,
+            generation,
+            receiver,
+            cancel,
+            _task: task,
+            expansion,
+            pending_paths: VecDeque::new(),
+            finished: None,
+            showing_previous_tree: true,
+        });
+    }
+
+    fn cancel_workspace_scan(&mut self) {
+        if let Some(scan) = self.workspace_scan.take() {
+            scan.cancel.store(true, AtomicOrdering::Relaxed);
+        }
+    }
+
+    fn refresh_workspace_tree(&mut self, cx: &mut gpui::Context<Self>, force: bool) {
         let Some(root) = self.state.workspace_root.clone() else {
             return;
         };
-        match scan_markdown_tree(&root) {
-            Ok(mut tree) => {
-                crate::ui::file_tree::preserve_expansion(&self.state.file_tree, &mut tree);
-                self.state.file_tree = tree;
-            }
-            Err(error) => {
-                self.notification = Some(Notification::localized_error(&error, self.language))
+        if !force && self.workspace_scan.is_some() {
+            self.workspace_refresh_pending = true;
+            return;
+        }
+        self.workspace_refresh_pending = false;
+        let expansion = crate::ui::file_tree::capture_expansion(&self.state.file_tree);
+        self.start_workspace_scan(root, expansion, cx);
+    }
+
+    fn poll_workspace_scan(&mut self, cx: &mut gpui::Context<Self>) -> bool {
+        let Some(generation) = self.workspace_scan.as_ref().map(|scan| scan.generation) else {
+            return false;
+        };
+
+        let mut receiver_disconnected = false;
+        if let Some(scan) = self.workspace_scan.as_mut() {
+            loop {
+                if scan.pending_paths.len() >= MAX_WORKSPACE_SCAN_PATHS_PER_POLL {
+                    break;
+                }
+                match scan.receiver.try_recv() {
+                    Ok(WorkspaceScanMessage::Batch {
+                        generation: message_generation,
+                        paths,
+                    }) if message_generation == generation => {
+                        scan.pending_paths.extend(paths);
+                    }
+                    Ok(WorkspaceScanMessage::Finished {
+                        generation: message_generation,
+                        result,
+                    }) if message_generation == generation => {
+                        scan.finished = Some(result);
+                    }
+                    Ok(_) => {}
+                    Err(TryRecvError::Empty) => break,
+                    Err(TryRecvError::Disconnected) => {
+                        receiver_disconnected = true;
+                        break;
+                    }
+                }
             }
         }
+
+        if let Some(scan) = self.workspace_scan.as_mut() {
+            if receiver_disconnected && scan.finished.is_none() {
+                scan.finished = Some(Ok(()));
+            }
+        }
+
+        let mut changed = false;
+        let mut completed_root = None;
+        let mut completed_result = None;
+        let mut completed = false;
+        if let Some(scan) = self.workspace_scan.as_mut() {
+            if !scan.pending_paths.is_empty() {
+                let mut paths = Vec::with_capacity(MAX_WORKSPACE_SCAN_PATHS_PER_POLL);
+                while paths.len() < MAX_WORKSPACE_SCAN_PATHS_PER_POLL {
+                    let Some(path) = scan.pending_paths.pop_front() else {
+                        break;
+                    };
+                    paths.push(path);
+                }
+                if scan.showing_previous_tree {
+                    self.state.file_tree.clear();
+                    scan.showing_previous_tree = false;
+                }
+                crate::ui::file_tree::insert_markdown_paths(
+                    &mut self.state.file_tree,
+                    &scan.root,
+                    paths,
+                    &scan.expansion,
+                );
+                changed = true;
+            }
+
+            if scan.finished.is_some() && scan.pending_paths.is_empty() {
+                if scan.showing_previous_tree {
+                    self.state.file_tree.clear();
+                    scan.showing_previous_tree = false;
+                    changed = true;
+                }
+                completed_root = Some(scan.root.clone());
+                completed_result = scan.finished.take();
+                completed = true;
+            }
+        }
+
+        if !completed {
+            return changed;
+        }
+
+        self.workspace_scan = None;
+        if let Some(Err(error)) = completed_result {
+            self.notification = Some(Notification::localized_error(&error, self.language));
+            changed = true;
+        }
+
+        if self.workspace_refresh_pending {
+            self.workspace_refresh_pending = false;
+            if let Some(root) = completed_root {
+                let expansion = crate::ui::file_tree::capture_expansion(&self.state.file_tree);
+                self.start_workspace_scan(root, expansion, cx);
+                changed = true;
+            }
+        }
+        changed
     }
 
     fn file_result<T>(&mut self, result: Result<T, FileError>) -> Result<T, LifecycleError> {

@@ -13,6 +13,8 @@ use std::path::Path;
 
 use crate::{app::Mieli, i18n::TextKey};
 
+use super::root::PANEL_HEADER_HEIGHT;
+
 pub fn render(
     view: &mut Mieli,
     _window: &mut Window,
@@ -27,7 +29,7 @@ pub fn render(
         .flex()
         .flex_col()
         .flex_1()
-        .min_w_0()
+        .min_w(px(500.0))
         .min_h_0()
         .bg(theme.bg)
         .child(tab_strip)
@@ -48,18 +50,9 @@ fn tab_strip(
         .items_end()
         .gap(px(1.0))
         .px(px(6.0))
-        .py(px(0.0))
-        .relative()
-        .bg(theme.surface)
-        .child(
-            div()
-                .absolute()
-                .left(px(0.0))
-                .right(px(0.0))
-                .bottom(px(0.0))
-                .h(px(1.0))
-                .bg(theme.border),
-        );
+        .h(px(PANEL_HEADER_HEIGHT))
+        .flex_none()
+        .bg(theme.surface);
 
     for tab in &view.state.tabs {
         let tab_id = tab.id;

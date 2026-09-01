@@ -2,7 +2,7 @@ use std::{path::Path, time::Duration};
 
 use bezel::{
     gpui::{
-        Animation, AnimationExt, Context, ElementId, IntoElement, SharedString, div,
+        Animation, AnimationExt, Context, ElementId, IntoElement, Pixels, SharedString, div,
         ease_out_quint, prelude::*, px,
     },
     theme::Theme,
@@ -11,11 +11,12 @@ use bezel::{
 
 use crate::{app::Mieli, i18n::TextKey};
 
-use super::file_tree::visible_rows;
+use super::{file_tree::visible_rows, root::PANEL_HEADER_HEIGHT};
 
 pub fn render(
     view: &mut Mieli,
     theme: &Theme,
+    width: Pixels,
     cx: &mut Context<Mieli>,
 ) -> bezel::gpui::Stateful<bezel::gpui::Div> {
     let active_path = view.state.active_tab.and_then(|active_id| {
@@ -29,6 +30,8 @@ pub fn render(
     let has_rows = !rows.is_empty();
     let workspace_name = view.state.workspace_root.as_deref().map(path_display_name);
     let language = view.language();
+    let scan_loading = view.workspace_scan_loading();
+    let showing_previous_tree = view.workspace_scan_showing_previous_tree();
 
     let mut tree = div().id("mieli-file-tree").flex().flex_col();
     for row in rows {
@@ -79,13 +82,6 @@ pub fn render(
             })
             .when(selected, |item| item.bg(theme.element_active))
             .hover(|style| style.bg(theme.element_hover))
-            .on_click(cx.listener(move |this, _, _, cx| {
-                if is_dir {
-                    this.toggle_tree_path(&callback_path, cx);
-                } else {
-                    let _ = this.open_file(callback_path.clone(), cx);
-                }
-            }))
             .child(disclosure)
             .child(icon(icon_path).size(px(13.0)).text_color(if selected {
                 theme.accent
@@ -94,6 +90,15 @@ pub fn render(
             }))
             .child(div().min_w(px(0.0)).flex_1().truncate().child(label));
 
+        if !showing_previous_tree {
+            item = item.on_click(cx.listener(move |this, _, _, cx| {
+                if is_dir {
+                    this.toggle_tree_path(&callback_path, cx);
+                } else {
+                    let _ = this.open_file(callback_path.clone(), cx);
+                }
+            }));
+        }
         if is_dir {
             item = item.font_weight(bezel::gpui::FontWeight::MEDIUM);
         }
@@ -108,8 +113,11 @@ pub fn render(
             |item, delta| item.opacity(delta),
         ));
     }
+    if showing_previous_tree {
+        tree = tree.opacity(0.45);
+    }
 
-    let empty_message = if view.state.workspace_root.is_some() && !has_rows {
+    let empty_message = if !scan_loading && view.state.workspace_root.is_some() && !has_rows {
         language.text(TextKey::NoMarkdownFiles)
     } else {
         ""
@@ -121,9 +129,8 @@ pub fn render(
         .items_center()
         .gap(px(6.0))
         .px(px(10.0))
-        .py(px(6.0))
-        .border_b_1()
-        .border_color(theme.border)
+        .h(px(PANEL_HEADER_HEIGHT))
+        .flex_none()
         .child(
             icon(icons::FOLDER_WITH_FILES)
                 .size(px(14.0))
@@ -164,13 +171,12 @@ pub fn render(
 
     div()
         .id("mieli-sidebar")
-        .w(px(224.0))
+        .w(width)
+        .min_w(px(200.0))
         .flex_none()
         .min_h_0()
         .flex()
         .flex_col()
-        .border_r_1()
-        .border_color(theme.border)
         .bg(theme.surface)
         .child(header)
         .child(
@@ -181,6 +187,15 @@ pub fn render(
                 .overflow_y_scroll()
                 .p(px(5.0))
                 .child(tree)
+                .when(scan_loading, |content| {
+                    content.child(
+                        div()
+                            .p(px(8.0))
+                            .text_size(px(11.0))
+                            .text_color(theme.text_faint)
+                            .child(language.text(TextKey::LoadingWorkspace)),
+                    )
+                })
                 .when(!empty_message.is_empty(), |content| {
                     content.child(
                         div()

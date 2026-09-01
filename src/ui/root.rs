@@ -1,18 +1,35 @@
 use std::sync::Arc;
 
 use bezel::{
-    gpui::{Context, FontWeight, Image, ImageFormat, Window, div, img, prelude::*, px, white},
+    gpui::{
+        Context, DragMoveEvent, FontWeight, Image, ImageFormat, MouseButton, Pixels, Window, div,
+        img, prelude::*, px, white,
+    },
     theme::Theme,
     ui::{
         icons::{self, icon},
         tooltip::Tooltip,
-        widgets::ButtonStyle,
+        widgets::{ButtonStyle, SplitDrag},
     },
 };
 
 use crate::{app::Mieli, i18n::TextKey, state::NotificationKind};
 
 use super::{dialogs, sidebar, tabs};
+
+pub(crate) const SIDEBAR_MIN_WIDTH: f32 = 200.0;
+pub(crate) const EDITOR_MIN_WIDTH: f32 = 500.0;
+pub(crate) const SPLIT_HANDLE_WIDTH: f32 = 9.0;
+pub(crate) const PANEL_HEADER_HEIGHT: f32 = 33.0;
+pub(crate) const WORKSPACE_MIN_WIDTH: f32 =
+    SIDEBAR_MIN_WIDTH + SPLIT_HANDLE_WIDTH + EDITOR_MIN_WIDTH;
+
+pub(crate) fn clamp_sidebar_width(requested: Pixels, available_width: Pixels) -> Pixels {
+    let maximum = (available_width - px(SPLIT_HANDLE_WIDTH + EDITOR_MIN_WIDTH))
+        .as_f32()
+        .max(SIDEBAR_MIN_WIDTH);
+    px(requested.as_f32().clamp(SIDEBAR_MIN_WIDTH, maximum))
+}
 
 pub fn render(
     view: &mut Mieli,
@@ -27,11 +44,63 @@ pub fn render(
         .id("mieli-workspace")
         .flex()
         .flex_1()
+        .min_w(px(WORKSPACE_MIN_WIDTH))
         .min_h_0()
+        .relative()
         .bg(theme.bg);
 
     if view.state.sidebar_visible {
-        body = body.child(sidebar::render(view, &theme, cx));
+        let sidebar_width = clamp_sidebar_width(view.sidebar_width, window.viewport_size().width);
+        let split_indicator = if view.sidebar_dragging {
+            theme.accent.opacity(0.78)
+        } else {
+            theme.border.opacity(0.88)
+        };
+        let split_handle_side_width = (SPLIT_HANDLE_WIDTH - 1.0) / 2.0;
+        let split_handle = div()
+            .id("mieli-sidebar-split-handle")
+            .relative()
+            .w(px(SPLIT_HANDLE_WIDTH))
+            .h_full()
+            .flex_none()
+            .flex()
+            .items_center()
+            .cursor_col_resize()
+            .child(
+                div()
+                    .h_full()
+                    .w(px(split_handle_side_width))
+                    .bg(theme.surface),
+            )
+            .child(div().h_full().w(px(1.0)).bg(split_indicator))
+            .child(div().h_full().w(px(split_handle_side_width)).bg(theme.bg))
+            .on_drag(SplitDrag, |_, _, _, cx| cx.new(|_| bezel::gpui::Empty));
+
+        body = body
+            .on_drag_move(
+                cx.listener(|view, event: &DragMoveEvent<SplitDrag>, _, cx| {
+                    let requested = event.event.position.x - event.bounds.origin.x;
+                    view.sidebar_width = clamp_sidebar_width(requested, event.bounds.size.width);
+                    view.sidebar_dragging = true;
+                    cx.notify();
+                }),
+            )
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|view, _, _, cx| {
+                    view.sidebar_dragging = false;
+                    cx.notify();
+                }),
+            )
+            .on_mouse_up_out(
+                MouseButton::Left,
+                cx.listener(|view, _, _, cx| {
+                    view.sidebar_dragging = false;
+                    cx.notify();
+                }),
+            )
+            .child(sidebar::render(view, &theme, sidebar_width, cx))
+            .child(split_handle);
     }
 
     if has_tabs {
@@ -39,7 +108,15 @@ pub fn render(
     } else {
         body = body.child(empty_state(view, &theme, cx));
     }
-
+    body = body.child(
+        div()
+            .absolute()
+            .left(px(0.0))
+            .right(px(0.0))
+            .top(px(PANEL_HEADER_HEIGHT - 1.0))
+            .h(px(1.0))
+            .bg(theme.border),
+    );
     let mut root = div()
         .id("mieli-root")
         .size_full()
@@ -350,7 +427,9 @@ fn empty_state(
 ) -> bezel::gpui::Stateful<bezel::gpui::Div> {
     let language = view.language();
     let workspace_open = view.state.workspace_root.is_some();
-    let empty_hint = if workspace_open {
+    let empty_hint = if view.workspace_scan_loading() {
+        TextKey::LoadingWorkspace
+    } else if workspace_open {
         if view.state.file_tree.is_empty() {
             TextKey::NoMarkdownFiles
         } else {
@@ -387,7 +466,7 @@ fn empty_state(
     div()
         .id("mieli-empty-state")
         .flex_1()
-        .min_w_0()
+        .min_w(px(EDITOR_MIN_WIDTH))
         .flex()
         .items_center()
         .justify_center()
@@ -431,4 +510,26 @@ fn app_logo(size: f32) -> bezel::gpui::Img {
         include_bytes!("../../resources/mieli_logo_1024x1024.png").to_vec(),
     )))
     .size(px(size))
+}
+
+#[cfg(test)]
+mod tests {
+    use bezel::gpui::px;
+
+    use super::clamp_sidebar_width;
+
+    #[test]
+    fn sidebar_width_clamps_to_minimum() {
+        assert_eq!(clamp_sidebar_width(px(100.0), px(1200.0)), px(200.0));
+    }
+
+    #[test]
+    fn sidebar_width_preserves_editor_minimum() {
+        assert_eq!(clamp_sidebar_width(px(800.0), px(1200.0)), px(691.0));
+    }
+
+    #[test]
+    fn sidebar_width_stays_at_minimum_when_window_is_too_narrow() {
+        assert_eq!(clamp_sidebar_width(px(300.0), px(600.0)), px(200.0));
+    }
 }
