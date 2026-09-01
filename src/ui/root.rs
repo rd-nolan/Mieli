@@ -376,18 +376,13 @@ fn empty_state(
             },
         )
     };
-    let mut welcome_card = div()
-        .id("mieli-welcome-card")
+    let mut empty_content = div()
+        .id("mieli-empty-content")
         .w_full()
         .max_w(px(384.0))
         .flex()
         .flex_col()
         .items_center()
-        .p(px(32.0))
-        .rounded(px(8.0))
-        .border_1()
-        .border_color(theme.border)
-        .bg(theme.surface_card)
         .child(
             div()
                 .size(px(48.0))
@@ -414,7 +409,7 @@ fn empty_state(
         );
 
     if let Some(description) = empty_description {
-        welcome_card = welcome_card.child(
+        empty_content = empty_content.child(
             div()
                 .mt(px(8.0))
                 .max_w(px(280.0))
@@ -426,7 +421,7 @@ fn empty_state(
     }
 
     if !view.workspace_scan_loading() {
-        welcome_card = welcome_card.child(
+        empty_content = empty_content.child(
             div()
                 .flex()
                 .items_center()
@@ -445,7 +440,7 @@ fn empty_state(
         .justify_center()
         .p(px(24.0))
         .bg(theme.bg)
-        .child(welcome_card)
+        .child(empty_content)
 }
 
 #[cfg(test)]
