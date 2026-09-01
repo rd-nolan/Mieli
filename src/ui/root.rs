@@ -18,7 +18,7 @@ pub(crate) const EDITOR_MIN_WIDTH: f32 = 500.0;
 pub(crate) const SPLIT_HANDLE_WIDTH: f32 = 9.0;
 pub(crate) const SPLIT_HANDLE_SIDE_WIDTH: f32 = (SPLIT_HANDLE_WIDTH - 1.0) / 2.0;
 pub(crate) const SPLIT_HANDLE_BRIDGE_WIDTH: f32 = SPLIT_HANDLE_WIDTH - SPLIT_HANDLE_SIDE_WIDTH;
-pub(crate) const PANEL_HEADER_HEIGHT: f32 = 32.0;
+pub(crate) const PANEL_HEADER_HEIGHT: f32 = 26.0;
 pub(crate) const PATH_BAR_HEIGHT: f32 = 28.0;
 pub(crate) const WORKSPACE_MIN_WIDTH: f32 =
     SIDEBAR_MIN_WIDTH + SPLIT_HANDLE_WIDTH + EDITOR_MIN_WIDTH;
@@ -163,22 +163,24 @@ pub fn render(
         .bg(theme.bg)
         .text_color(theme.text);
 
-    if !view.state.sidebar_visible {
+    root = root.child(body);
+
+    if !view.state.sidebar_visible && !has_tabs {
         root = root.child(
             div()
-                .id("mieli-toolbar")
+                .id("mieli-editor-actions-bar")
                 .flex()
                 .items_center()
+                .justify_end()
+                .h(px(PATH_BAR_HEIGHT))
                 .flex_none()
-                .h(px(34.0))
-                .border_b_1()
+                .px(px(8.0))
+                .border_t_1()
                 .border_color(theme.border)
                 .bg(theme.surface)
-                .child(sidebar::render_actions(view, &theme, cx)),
+                .child(sidebar::render_sidebar_toggle(view, &theme, cx)),
         );
     }
-
-    root = root.child(body);
 
     if let Some(notification) = view.notification.as_ref() {
         let is_success = matches!(notification.kind, NotificationKind::Success);

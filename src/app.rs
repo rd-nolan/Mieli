@@ -811,7 +811,9 @@ impl Mieli {
             return self.open_folder(canonical, cx);
         }
 
-        if let Some(parent) = workspace_root_for_path(&canonical) {
+        if let Some(parent) = workspace_root_for_path(&canonical)
+            && workspace_root_changed(self.state.workspace_root.as_deref(), &parent)
+        {
             self.open_folder(parent, cx)?;
         }
         self.open_file(canonical, cx).map(|_| ())
@@ -1563,17 +1565,17 @@ impl Mieli {
         let mut changed_paths = BTreeSet::new();
         let mut rescan_workspace = false;
         for event in events {
+            let rescan_for_event = workspace_event_requires_rescan(
+                self.state.workspace_root.as_deref(),
+                &self.state.file_tree,
+                &event,
+            );
             match event {
                 FileSystemEvent::Changed(path) => {
                     changed_paths.insert(path);
                 }
                 FileSystemEvent::Created(path) | FileSystemEvent::Removed(path) => {
-                    if self
-                        .state
-                        .workspace_root
-                        .as_ref()
-                        .is_some_and(|root| path.starts_with(root))
-                    {
+                    if rescan_for_event {
                         rescan_workspace = true;
                     }
                     changed_paths.insert(path);
@@ -2011,6 +2013,41 @@ fn paths_overlap(left: &Path, right: &Path) -> bool {
     left == right || left.starts_with(right) || right.starts_with(left)
 }
 
+fn workspace_root_changed(current: Option<&Path>, next: &Path) -> bool {
+    current != Some(next)
+}
+
+fn workspace_event_requires_rescan(
+    workspace_root: Option<&Path>,
+    file_tree: &[FileTreeNode],
+    event: &FileSystemEvent,
+) -> bool {
+    let (path, created) = match event {
+        FileSystemEvent::Created(path) => (path.as_path(), true),
+        FileSystemEvent::Removed(path) => (path.as_path(), false),
+        FileSystemEvent::Changed(_) | FileSystemEvent::Error { .. } => return false,
+    };
+    let Some(root) = workspace_root else {
+        return false;
+    };
+    if !path.starts_with(root) {
+        return false;
+    }
+    if is_markdown_file(path) {
+        return true;
+    }
+
+    !created && file_tree_contains_path(file_tree, path)
+}
+
+fn file_tree_contains_path(nodes: &[FileTreeNode], path: &Path) -> bool {
+    nodes.iter().any(|node| {
+        node.path == path
+            || node.path.starts_with(path)
+            || (node.is_dir && file_tree_contains_path(&node.children, path))
+    })
+}
+
 impl gpui::Render for Mieli {
     fn render(
         &mut self,
@@ -2066,6 +2103,7 @@ mod tests {
         file::{
             FileError,
             io::{canonicalize_path, disk_version, write_markdown},
+            watcher::FileSystemEvent,
         },
         state::{DiskState, DiskVersion, FileTreeNode, Modal, TabId},
     };
@@ -2077,7 +2115,8 @@ mod tests {
         apply_workspace_state, autosave_is_eligible, autosave_transition, clear_shutdown_modal,
         clear_tab_modal_state, close_action, keep_deleted_open, load_external_change,
         markdown_destination, queue_modal, save_all_tab_is_writable, save_as_transition,
-        save_tab_transition, window_close_action, workspace_root_for_path,
+        save_tab_transition, window_close_action, workspace_event_requires_rescan,
+        workspace_root_changed, workspace_root_for_path,
     };
 
     #[test]
@@ -2833,6 +2872,74 @@ mod tests {
         assert_eq!(paths.get(&first_path), Some(first));
         assert_eq!(paths.get(&second_path), Some(second));
         assert_eq!(paths.len(), 2);
+    }
+
+    #[test]
+    fn opening_a_file_in_the_current_workspace_does_not_change_workspace_root() {
+        let root = Path::new("/workspace");
+
+        assert!(!workspace_root_changed(Some(root), root));
+        assert!(workspace_root_changed(Some(Path::new("/other")), root));
+        assert!(workspace_root_changed(None, root));
+    }
+
+    #[test]
+    fn workspace_rescan_ignores_non_markdown_created_paths() {
+        let root = Path::new("/workspace");
+        let event = FileSystemEvent::Created(root.join("target/debug/test-binary"));
+
+        assert!(!workspace_event_requires_rescan(Some(root), &[], &event));
+    }
+
+    #[test]
+    fn workspace_rescan_includes_markdown_changes_and_known_directory_removals() {
+        let root = Path::new("/workspace");
+        let docs = root.join("docs");
+        let tree = vec![FileTreeNode {
+            path: docs.clone(),
+            name: String::from("docs/"),
+            is_dir: true,
+            expanded: true,
+            children: vec![FileTreeNode {
+                path: docs.join("guide.md"),
+                name: String::from("guide.md"),
+                is_dir: false,
+                expanded: true,
+                children: Vec::new(),
+            }],
+        }];
+
+        assert!(workspace_event_requires_rescan(
+            Some(root),
+            &tree,
+            &FileSystemEvent::Created(root.join("new.md")),
+        ));
+        assert!(workspace_event_requires_rescan(
+            Some(root),
+            &tree,
+            &FileSystemEvent::Removed(root.join("old.markdown")),
+        ));
+        assert!(workspace_event_requires_rescan(
+            Some(root),
+            &tree,
+            &FileSystemEvent::Removed(docs),
+        ));
+    }
+
+    #[test]
+    fn workspace_rescan_ignores_unrelated_removed_paths_and_outside_events() {
+        let root = Path::new("/workspace");
+
+        assert!(!workspace_event_requires_rescan(
+            Some(root),
+            &[],
+            &FileSystemEvent::Removed(root.join("target/cache")),
+        ));
+        assert!(!workspace_event_requires_rescan(
+            Some(root),
+            &[],
+            &FileSystemEvent::Created(PathBuf::from("/other/new.md")),
+        ));
     }
 
     struct TestDirectory {

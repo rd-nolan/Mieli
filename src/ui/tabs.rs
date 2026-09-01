@@ -13,7 +13,10 @@ use std::path::Path;
 
 use crate::{app::Mieli, i18n::TextKey};
 
-use super::root::{PANEL_HEADER_HEIGHT, PATH_BAR_HEIGHT, SPLIT_HANDLE_BRIDGE_WIDTH};
+use super::{
+    root::{PANEL_HEADER_HEIGHT, PATH_BAR_HEIGHT, SPLIT_HANDLE_BRIDGE_WIDTH},
+    sidebar,
+};
 
 pub fn render(
     view: &mut Mieli,
@@ -81,7 +84,7 @@ fn tab_strip(
             .max_w(px(170.0))
             .pl(px(6.0))
             .pr(px(0.0))
-            .h(px(28.0))
+            .h(px(24.0))
             .text_size(px(12.0))
             .text_color(if selected {
                 theme.text
@@ -125,7 +128,7 @@ fn tab_strip(
                     .flex_none()
                     .items_center()
                     .justify_center()
-                    .size(px(26.0))
+                    .size(px(24.0))
                     .rounded(px(Theme::control_radius()))
                     .cursor_pointer()
                     .tooltip(move |window, cx| {
@@ -151,7 +154,7 @@ fn tab_strip(
             .flex()
             .items_center()
             .justify_center()
-            .size(px(26.0))
+            .size(px(24.0))
             .rounded(px(Theme::control_radius()))
             .text_color(theme.text_muted)
             .cursor_pointer()
@@ -317,7 +320,13 @@ fn path_bar(
         .flex_none()
         .px(px(12.0))
         .relative()
-        .bg(theme.surface)
+        .bg(theme.surface);
+
+    if !view.state.sidebar_visible {
+        bar = bar.child(sidebar::render_sidebar_toggle(view, theme, cx));
+    }
+
+    bar = bar
         .child(
             icon(icons::DOCUMENT)
                 .size(px(13.0))
@@ -330,6 +339,7 @@ fn path_bar(
             div()
                 .id("mieli-copy-path")
                 .flex()
+                .flex_none()
                 .items_center()
                 .justify_center()
                 .size(px(22.0))

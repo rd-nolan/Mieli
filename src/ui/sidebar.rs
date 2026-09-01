@@ -14,7 +14,10 @@ use bezel::{
 
 use crate::{app::Mieli, i18n::TextKey};
 
-use super::{file_tree::visible_rows, root::PANEL_HEADER_HEIGHT};
+use super::{
+    file_tree::visible_rows,
+    root::{PANEL_HEADER_HEIGHT, PATH_BAR_HEIGHT},
+};
 
 pub(crate) fn render_actions(
     view: &mut Mieli,
@@ -63,6 +66,29 @@ pub(crate) fn render_actions(
         .child(actions)
 }
 
+pub(crate) fn render_sidebar_toggle(
+    view: &mut Mieli,
+    theme: &Theme,
+    cx: &mut Context<Mieli>,
+) -> bezel::gpui::Stateful<bezel::gpui::Div> {
+    let language = view.language();
+    let mut sidebar_button = sidebar_action_button(
+        cx,
+        theme,
+        "mieli-sidebar-toggle",
+        language.sidebar_toggle(view.state.sidebar_visible),
+        icons::SIDEBAR_MINIMALISTIC_LEFT,
+        |this, cx| {
+            this.toggle_sidebar(cx);
+        },
+    );
+    if view.state.sidebar_visible {
+        sidebar_button = sidebar_button.bg(theme.element_active);
+    }
+
+    sidebar_button
+}
+
 fn sidebar_action_button(
     cx: &mut Context<Mieli>,
     theme: &Theme,
@@ -77,6 +103,7 @@ fn sidebar_action_button(
         .items_center()
         .justify_center()
         .size(px(26.0))
+        .flex_none()
         .rounded(px(Theme::control_radius()))
         .text_size(px(12.0))
         .text_color(theme.text_muted)
@@ -285,7 +312,7 @@ pub fn render(
                 .id("mieli-sidebar-footer")
                 .flex()
                 .items_center()
-                .h(px(34.0))
+                .h(px(PATH_BAR_HEIGHT))
                 .flex_none()
                 .px(px(8.0))
                 .border_t_1()
