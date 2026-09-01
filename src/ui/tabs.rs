@@ -1,7 +1,7 @@
 use bezel::{
     gpui::{
-        Context, ElementId, Focusable, MouseButton, SharedString, StyleRefinement, Window, div,
-        prelude::*, px,
+        Context, ElementId, Focusable, FontWeight, MouseButton, SharedString, StyleRefinement,
+        Window, div, prelude::*, px,
     },
     theme::Theme,
     ui::{
@@ -14,7 +14,7 @@ use std::path::Path;
 use crate::{app::Mieli, i18n::TextKey};
 
 use super::{
-    root::{PANEL_HEADER_HEIGHT, PATH_BAR_HEIGHT, SPLIT_HANDLE_BRIDGE_WIDTH},
+    root::{EDITOR_MIN_WIDTH, PANEL_HEADER_HEIGHT, PATH_BAR_HEIGHT, SPLIT_HANDLE_BRIDGE_WIDTH},
     sidebar,
 };
 
@@ -32,7 +32,7 @@ pub fn render(
         .flex()
         .flex_col()
         .flex_1()
-        .min_w(px(500.0))
+        .min_w(px(EDITOR_MIN_WIDTH))
         .min_h_0()
         .bg(theme.bg)
         .child(tab_strip)
@@ -70,7 +70,7 @@ fn tab_strip(
         let dirty = tab.dirty;
 
         let dirty_indicator = div()
-            .size(px(5.0))
+            .size(px(4.0))
             .rounded(px(99.0))
             .bg(theme.warning)
             .when(!dirty, |dot| dot.opacity(0.0));
@@ -85,6 +85,11 @@ fn tab_strip(
             .pl(px(6.0))
             .pr(px(0.0))
             .h(px(24.0))
+            .font_weight(if selected {
+                FontWeight::MEDIUM
+            } else {
+                FontWeight::NORMAL
+            })
             .text_size(px(12.0))
             .text_color(if selected {
                 theme.text
@@ -296,8 +301,8 @@ fn path_bar(
         .min_w(px(0.0))
         .flex_1()
         .truncate()
-        .text_size(px(11.0))
-        .text_color(theme.text_muted)
+        .text_size(px(12.0))
+        .text_color(theme.text_dim)
         .child(
             path.clone()
                 .unwrap_or_else(|| language.text(TextKey::Untitled).to_string()),
@@ -328,7 +333,7 @@ fn path_bar(
         .child(
             icon(icons::DOCUMENT)
                 .size(px(13.0))
-                .text_color(theme.text_faint),
+                .text_color(theme.text_dim),
         )
         .child(path_label);
 

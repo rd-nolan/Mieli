@@ -300,9 +300,9 @@ fn command_button(
         .id(id)
         .flex()
         .items_center()
-        .gap(px(4.0))
-        .px(px(7.0))
-        .py(px(3.0))
+        .gap(px(8.0))
+        .px(px(12.0))
+        .py(px(6.0))
         .rounded(px(Theme::control_radius()))
         .text_size(px(12.0))
         .font_weight(if style == ButtonStyle::Prominent {
@@ -313,7 +313,7 @@ fn command_button(
         .text_color(foreground)
         .cursor_pointer()
         .on_click(cx.listener(move |this, _, _, cx| action(this, cx)))
-        .child(icon(icon_path).size(px(14.0)).text_color(foreground))
+        .child(icon(icon_path).size(px(15.0)).text_color(foreground))
         .child(label);
 
     if let Some(background) = background {
@@ -335,18 +335,21 @@ fn empty_state(
 ) -> bezel::gpui::Stateful<bezel::gpui::Div> {
     let language = view.language();
     let workspace_open = view.state.workspace_root.is_some();
-    let empty_hint = if view.workspace_scan_loading() {
-        language.text(TextKey::LoadingWorkspace).to_owned()
+    let (empty_title, empty_description) = if view.workspace_scan_loading() {
+        (language.text(TextKey::LoadingWorkspace).to_owned(), None)
     } else if let Some(error) = view.workspace_scan_error() {
-        error.localized_message(language)
+        (error.localized_message(language), None)
     } else if workspace_open {
         if view.state.file_tree.is_empty() {
-            language.text(TextKey::NoMarkdownFiles).to_owned()
+            (language.text(TextKey::NoMarkdownFiles).to_owned(), None)
         } else {
-            language.text(TextKey::NoDocumentSelected).to_owned()
+            (language.text(TextKey::NoDocumentSelected).to_owned(), None)
         }
     } else {
-        language.text(TextKey::WelcomeHint).to_owned()
+        (
+            language.text(TextKey::WelcomeTitle).to_owned(),
+            Some(language.text(TextKey::WelcomeHint).to_owned()),
+        )
     };
     let empty_action = if workspace_open {
         command_button(
@@ -376,31 +379,59 @@ fn empty_state(
     let mut welcome_card = div()
         .id("mieli-welcome-card")
         .w_full()
-        .max_w(px(360.0))
+        .max_w(px(384.0))
         .flex()
         .flex_col()
         .items_center()
+        .p(px(32.0))
+        .rounded(px(8.0))
+        .border_1()
+        .border_color(theme.border)
+        .bg(theme.surface_card)
         .child(
-            icon(icons::DOCUMENT)
-                .size(px(28.0))
-                .text_color(theme.accent),
+            div()
+                .size(px(48.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(8.0))
+                .bg(theme.accent.opacity(0.10))
+                .child(
+                    icon(icons::DOCUMENT)
+                        .size(px(24.0))
+                        .text_color(theme.accent),
+                ),
         )
         .child(
             div()
-                .mt(px(12.0))
-                .text_size(px(13.0))
+                .mt(px(16.0))
+                .max_w(px(320.0))
+                .text_size(px(16.0))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(theme.text)
+                .text_center()
+                .child(empty_title),
+        );
+
+    if let Some(description) = empty_description {
+        welcome_card = welcome_card.child(
+            div()
+                .mt(px(8.0))
+                .max_w(px(280.0))
+                .text_size(px(12.0))
                 .text_color(theme.text_muted)
                 .text_center()
-                .child(empty_hint),
+                .child(description),
         );
+    }
 
     if !view.workspace_scan_loading() {
         welcome_card = welcome_card.child(
             div()
                 .flex()
                 .items_center()
-                .gap(px(4.0))
-                .mt(px(16.0))
+                .gap(px(8.0))
+                .mt(px(24.0))
                 .child(empty_action),
         );
     }

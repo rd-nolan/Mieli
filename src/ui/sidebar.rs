@@ -19,7 +19,7 @@ use crate::{
 
 use super::{
     file_tree::visible_rows,
-    root::{PANEL_HEADER_HEIGHT, PATH_BAR_HEIGHT},
+    root::{PANEL_HEADER_HEIGHT, PATH_BAR_HEIGHT, SIDEBAR_MIN_WIDTH},
 };
 
 pub(crate) fn render_actions(
@@ -195,23 +195,33 @@ pub fn render(
             .flex()
             .items_center()
             .gap(px(5.0))
-            .pl(px(6.0 + row.depth as f32 * 14.0))
-            .pr(px(6.0))
-            .py(px(3.0))
+            .pl(px(4.0 + row.depth as f32 * 16.0))
+            .pr(px(4.0))
+            .h(px(24.0))
+            .flex_none()
             .rounded(px(Theme::control_radius()))
             .text_size(px(12.0))
             .text_color(if selected {
                 theme.text
-            } else {
+            } else if is_dir {
                 theme.text_muted
+            } else {
+                theme.text_faint
             })
-            .when(selected, |item| item.bg(theme.element_active))
-            .hover(|style| style.bg(theme.element_hover))
+            .when(selected, |item| {
+                item.bg(theme.accent.opacity(0.10))
+                    .hover(|style| style.bg(theme.accent.opacity(0.14)))
+            })
+            .when(!selected, |item| {
+                item.hover(|style| style.bg(theme.element_hover))
+            })
             .child(disclosure)
             .child(icon(icon_path).size(px(13.0)).text_color(if selected {
                 theme.accent
-            } else {
+            } else if is_dir {
                 theme.text_muted
+            } else {
+                theme.text_faint
             }))
             .child(div().min_w(px(0.0)).flex_1().truncate().child(label));
 
@@ -270,7 +280,7 @@ pub fn render(
                 .min_w(px(0.0))
                 .flex_1()
                 .truncate()
-                .text_size(px(12.0))
+                .text_size(px(14.0))
                 .font_weight(bezel::gpui::FontWeight::MEDIUM)
                 .text_color(theme.text)
                 .child(
@@ -283,7 +293,7 @@ pub fn render(
     div()
         .id("mieli-sidebar")
         .w(width)
-        .min_w(px(200.0))
+        .min_w(px(SIDEBAR_MIN_WIDTH))
         .flex_none()
         .min_h_0()
         .flex()
@@ -296,7 +306,7 @@ pub fn render(
                 .flex_1()
                 .min_h_0()
                 .overflow_y_scroll()
-                .p(px(5.0))
+                .p(px(8.0))
                 .child(tree)
                 .when(!empty_message.is_empty(), |content| {
                     content.child(
