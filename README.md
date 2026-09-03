@@ -10,7 +10,8 @@ Mieli is a native desktop Markdown editor built on the Bezel stack. It opens ind
 - `bezel-markdown` as `markdown`: Markdown parse/serialize APIs used for the Task 9 fixed-point verification
 - `bezel-gpui` and `bezel-gpui-platform` `=0.3.4`: native windowing, rendering, actions, menus, timers, and platform bootstrap
 - `directories`: resolves the platform config directory for Recent Files persistence
-- `sys-locale`: reads the system or application language preference for UI localization
+- `sys-locale`: reads the system or
+- application language preference for UI localization
 - `notify`: watches workspace roots and file-parent directories for external create/change/remove events
 - `rfd`: native open/save file and folder dialogs
 - `serde` and `serde_json`: serialize the Recent Files JSON file; Markdown documents themselves are stored as UTF-8 text, not JSON
@@ -52,7 +53,7 @@ Mieli does not currently call `markdown::parse` and `markdown::serialize` in the
 
 ### Tabs and sidebar
 
-- The sidebar is visible by default and can be toggled from the toolbar or File menu.
+- The sidebar is hidden by default and can be toggled from the editor footer or File menu.
 - The file tree sorts directories before files, compares names case-insensitively, and uses the full path only as a final tie-breaker.
 - The tab strip keeps one tab per canonical file path.
 - Switching tabs attempts a synchronous save of the previously active dirty tab only when autosave is enabled.
@@ -73,7 +74,9 @@ Mieli does not currently call `markdown::parse` and `markdown::serialize` in the
 
 - `resources/mieli_logo_1024x1024.png` is the source logo copied from the Xcode AppIcon set. It is the macOS `512x512@2x` asset and is the highest-resolution supplied variant.
 - `resources/mieli.icns` packages the supplied 16px through 1024px variants for Finder and Dock rendering.
-- Run `bash scripts/package-macos.sh` to build `target/release/Mieli.app` with the Logo installed as its bundle icon.
+- Run `bash scripts/package-macos.sh` to build `target/release/Mieli.app` and the Finder-friendly `target/release/Mieli.dmg` installer image. Set `MIELI_DMG_PATH` to override the DMG output path.
+- Run `bash scripts/package-macos-app-store.sh` when a signed, sandboxed `Mieli.pkg` is required; the PKG flow remains available alongside the DMG flow.
+- On macOS, opening through the native panel or Finder retains the selected resource access while it is scanned and watched. If an existing path is denied by the sandbox, use Open to choose it again and grant access.
 - The Cargo manifest also exposes the same `.icns` file to `cargo-bundle`.
 
 ## Autosave
@@ -155,7 +158,7 @@ The File menu also exposes `Open Recent`, `Refresh Tree`, `Save All`, and up to 
 
 ## Verification status
 
-As of 2026-08-30 on host target `aarch64-apple-darwin`, `cargo fmt --check`, `cargo check`, `cargo test`, and `cargo clippy --all-targets --all-features -- -D warnings` all pass. The only reported warning is the existing upstream future-incompatibility notice for `block v0.1.6`.
+As of 2026-08-31 on host target `aarch64-apple-darwin`, `cargo fmt --check`, `cargo check`, `cargo test`, and `cargo clippy --all-targets --all-features -- -D warnings` all pass. The only reported warning is the existing upstream future-incompatibility notice for `block v0.1.6`.
 
 `rustup target list --installed` currently reports only the host target `aarch64-apple-darwin`, so there were no installed non-host desktop targets available for additional `cargo check --target ...` coverage in this run.
 

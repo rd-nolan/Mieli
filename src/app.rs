@@ -1520,26 +1520,6 @@ impl Mieli {
         self.refresh_tree(cx);
     }
 
-    fn on_external_paths_drop(
-        &mut self,
-        paths: &gpui::ExternalPaths,
-        _: &mut gpui::Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        for path in paths.paths() {
-            let result = self.open_selected_path_with_permission_fallback(
-                crate::file::dialog::SelectedPath::from_path(path.clone()),
-                cx,
-            );
-            if matches!(
-                &result,
-                Err(LifecycleError::File(FileError::PermissionDenied { .. }))
-            ) {
-                break;
-            }
-        }
-    }
-
     fn on_open_recent<A: gpui::Action + actions::RecentAction>(
         &mut self,
         _: &A,
@@ -1773,17 +1753,15 @@ impl Mieli {
         }
 
         if let Some(watcher) = self.watcher.as_mut() {
-            if let Err(error) = watcher.watch_file_parent(path) {
-                self.notification = Some(Notification::localized_error(&error, self.language));
-            }
+            // A sandboxed file selection does not necessarily grant access to its parent
+            // directory. Watching a standalone file is optional and must not make opening it
+            // look like a failed operation.
+            let _ = watcher.watch_file_parent(path);
             return;
         }
 
-        match self.build_watcher(self.state.workspace_root.as_deref()) {
-            Ok(watcher) => self.watcher = Some(watcher),
-            Err(error) => {
-                self.notification = Some(Notification::localized_error(&error, self.language))
-            }
+        if let Ok(watcher) = self.build_watcher(self.state.workspace_root.as_deref()) {
+            self.watcher = Some(watcher);
         }
     }
 
@@ -1801,7 +1779,9 @@ impl Mieli {
             {
                 continue;
             }
-            watcher.watch_file_parent(&tab.path)?;
+            // Watching a tab outside the selected workspace is best effort. The file may have
+            // a security-scoped grant while its parent directory remains inaccessible.
+            let _ = watcher.watch_file_parent(&tab.path);
         }
         Ok(watcher)
     }
@@ -2135,7 +2115,6 @@ impl gpui::Render for Mieli {
             .on_action(cx.listener(Self::on_next_tab))
             .on_action(cx.listener(Self::on_previous_tab))
             .on_action(cx.listener(Self::on_refresh_tree))
-            .on_drop(cx.listener(Self::on_external_paths_drop))
             .on_action(cx.listener(Self::on_open_recent::<actions::OpenRecent1>))
             .on_action(cx.listener(Self::on_open_recent::<actions::OpenRecent2>))
             .on_action(cx.listener(Self::on_open_recent::<actions::OpenRecent3>))
@@ -2191,14 +2170,15 @@ mod tests {
     };
 
     #[test]
-    fn root_render_accepts_external_file_drops() {
+    fn root_render_does_not_register_external_file_drop_authorization() {
         let source = include_str!("app.rs");
+        let external_paths = ["External", "Paths"].concat();
+        let external_drop = ["on_external_paths_", "drop"].concat();
+        let drop_handler = [".on_", "drop"].concat();
 
-        assert!(source.contains("ExternalPaths"));
-        assert!(source.contains("on_external_paths_drop"));
-        assert!(source.contains("SelectedPath::from_path"));
-        assert!(source.contains("PermissionDenied"));
-        assert!(source.contains("open_selected_path_with_permission_fallback"));
+        assert!(!source.contains(&external_paths));
+        assert!(!source.contains(&external_drop));
+        assert!(!source.contains(&drop_handler));
     }
 
     #[test]

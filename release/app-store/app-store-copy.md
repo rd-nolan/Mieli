@@ -4,31 +4,31 @@
 
 | Locale | App Name | Subtitle |
 | --- | --- | --- |
-| en-US | Mieli: Markdown Editor | Focused Mac Text Editor |
-| zh-Hans | Mieli：Markdown 编辑器 | 简洁的 Mac 笔记工具 |
+| en-US | Mieli: Markdown Editor | Focused Markdown Editor |
+| zh-Hans | Mieli：Markdown 编辑器 | 简洁的 Markdown 笔记工具 |
 
 ## Promotional Text
 
 ### en-US
 
-Write, organize, and revisit Markdown notes in a focused Mac editor—lightweight, local, and ready whenever an idea arrives.
+Write, organize, and revisit Markdown notes in a focused desktop editor—lightweight, local, and ready whenever an idea arrives.
 
 ### zh-Hans
 
-在简洁的 Mac Markdown 编辑器中写作、整理和回看笔记。轻量、本地保存，灵感随时落笔。
+在简洁的本地 Markdown 编辑器中写作、整理和回看笔记。轻量、本地保存，灵感随时落笔。
 
 ## Description
 
 ### en-US
 
-Mieli is a focused Markdown editor and notes app for Mac. Write in plain text, organize files and folders, and return to your ideas in a lightweight native workspace.
+Mieli is a focused Markdown editor and notes app. Write in plain text, organize files and folders, and return to your ideas in a lightweight native workspace.
 
 Open a Markdown file or folder and start writing. Mieli keeps related notes together in a clear file tree, gives every document its own tab, and stays quiet while you think.
 
 Highlights:
 
 - Open individual .md and .markdown files or folders containing Markdown notes.
-- Edit in a focused native Mac text editor with familiar tabs.
+- Edit in a focused native text editor with familiar tabs.
 - Create a new document whenever an idea arrives.
 - Save changes automatically or save a copy to a new location.
 - Keep recent files close at hand.
@@ -39,14 +39,14 @@ Mieli is made for thoughtful writing: lightweight, local, and easy to return to.
 
 ### zh-Hans
 
-Mieli 是一款专为 Mac 打造的 Markdown 编辑器和本地笔记工具。用纯文本记录想法，按文件和文件夹整理内容，在轻量的原生工作区中专注写作。
+Mieli 是一款专注的 Markdown 编辑器和本地笔记工具。用纯文本记录想法，按文件和文件夹整理内容，在轻量的原生工作区中专注写作。
 
 打开 Markdown 文件或文件夹即可开始。Mieli 用清晰的文件树整理相关笔记，为每篇文档提供独立标签页，在你思考时保持安静、不打扰。
 
 主要功能：
 
 - 打开单个 .md、.markdown 文件，或包含 Markdown 笔记的文件夹。
-- 使用专为 Mac 打造的专注型文本编辑器和熟悉的标签页。
+- 使用专注型原生文本编辑器和熟悉的标签页。
 - 灵感出现时，随时新建文档。
 - 自动保存更改，也可将副本保存到新位置。
 - 随时访问最近打开的文件。

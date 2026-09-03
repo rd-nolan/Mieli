@@ -13,6 +13,8 @@ pub(crate) trait LocalizedMessage {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum TextKey {
     FileMenu,
+    WindowMenu,
+    ReopenWindow,
     NewFile,
     NewDocument,
     Open,
@@ -107,6 +109,9 @@ impl Language {
         match self {
             Self::English => match key {
                 TextKey::FileMenu => "File",
+                // gpui_platform uses this exact top-level name for the native window menu.
+                TextKey::WindowMenu => "Window",
+                TextKey::ReopenWindow => "Reopen Mieli Window",
                 TextKey::NewFile => "New File",
                 TextKey::NewDocument => "New Document",
                 TextKey::Open => "Open",
@@ -153,6 +158,9 @@ impl Language {
             },
             Self::Chinese => match key {
                 TextKey::FileMenu => "文件",
+                // gpui_platform uses this exact top-level name for the native window menu.
+                TextKey::WindowMenu => "Window",
+                TextKey::ReopenWindow => "重新打开 Mieli 窗口",
                 TextKey::NewFile => "新建文件",
                 TextKey::NewDocument => "新建文档",
                 TextKey::Open => "打开",

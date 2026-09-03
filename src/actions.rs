@@ -18,6 +18,7 @@ gpui::actions!(
         PreviousTab,
         RefreshTree,
         Quit,
+        OpenWindow,
         OpenRecent1,
         OpenRecent2,
         OpenRecent3,
@@ -190,21 +191,27 @@ pub(crate) fn set_file_menu(cx: &mut App, recent_paths: &[PathBuf], language: La
         .collect::<Vec<_>>();
     let recent_is_empty = recent_items.is_empty();
 
-    cx.set_menus([Menu::new(language.text(TextKey::FileMenu)).items([
-        MenuItem::action(language.text(TextKey::NewFile), NewFile),
-        MenuItem::action(language.text(TextKey::Open), OpenPath),
-        MenuItem::submenu(Menu::new(language.text(TextKey::OpenRecent)).items(recent_items))
-            .disabled(recent_is_empty),
-        MenuItem::action(language.text(TextKey::RefreshFiles), RefreshTree),
-        MenuItem::separator(),
-        MenuItem::action(language.text(TextKey::Save), Save),
-        MenuItem::action(language.text(TextKey::SaveAs), SaveAs),
-        MenuItem::action(language.text(TextKey::SaveAll), SaveAll),
-        MenuItem::separator(),
-        MenuItem::action(language.text(TextKey::CloseTab), CloseTab),
-        MenuItem::separator(),
-        MenuItem::action(language.text(TextKey::Quit), Quit),
-    ])]);
+    cx.set_menus([
+        Menu::new(language.text(TextKey::FileMenu)).items([
+            MenuItem::action(language.text(TextKey::NewFile), NewFile),
+            MenuItem::action(language.text(TextKey::Open), OpenPath),
+            MenuItem::submenu(Menu::new(language.text(TextKey::OpenRecent)).items(recent_items))
+                .disabled(recent_is_empty),
+            MenuItem::action(language.text(TextKey::RefreshFiles), RefreshTree),
+            MenuItem::separator(),
+            MenuItem::action(language.text(TextKey::Save), Save),
+            MenuItem::action(language.text(TextKey::SaveAs), SaveAs),
+            MenuItem::action(language.text(TextKey::SaveAll), SaveAll),
+            MenuItem::separator(),
+            MenuItem::action(language.text(TextKey::CloseTab), CloseTab),
+            MenuItem::separator(),
+            MenuItem::action(language.text(TextKey::Quit), Quit),
+        ]),
+        Menu::new(language.text(TextKey::WindowMenu)).items([MenuItem::action(
+            language.text(TextKey::ReopenWindow),
+            OpenWindow,
+        )]),
+    ]);
 }
 
 fn recent_label(path: &Path) -> String {
@@ -231,6 +238,7 @@ mod tests {
             PreviousTab.name(),
             RefreshTree.name(),
             Quit.name(),
+            OpenWindow.name(),
             OpenRecent1.name(),
             OpenRecent2.name(),
             OpenRecent3.name(),
@@ -267,6 +275,7 @@ mod tests {
                 "mieli::PreviousTab",
                 "mieli::RefreshTree",
                 "mieli::Quit",
+                "mieli::OpenWindow",
                 "mieli::OpenRecent1",
                 "mieli::OpenRecent2",
                 "mieli::OpenRecent3",
@@ -289,6 +298,18 @@ mod tests {
                 "mieli::OpenRecent20",
             ]
         );
+    }
+
+    #[test]
+    fn window_menu_exposes_a_reopen_action() {
+        let source = include_str!("actions.rs");
+        let window_menu = ["Window", "Menu"].concat();
+        let reopen_window = ["Reopen", "Window"].concat();
+        let open_window = ["Open", "Window"].concat();
+
+        assert!(source.contains(&window_menu));
+        assert!(source.contains(&reopen_window));
+        assert!(source.contains(&open_window));
     }
 
     #[test]

@@ -66,6 +66,21 @@ fn open_main_window(
     cx.activate(true);
 }
 
+fn reopen_main_window(
+    cx: &mut gpui::App,
+    open_view: &Rc<RefCell<Option<gpui::WeakEntity<app::Mieli>>>>,
+    async_cx: &Rc<RefCell<Option<gpui::AsyncApp>>>,
+    pending_paths: &Rc<RefCell<Vec<Url>>>,
+) {
+    let existing_view = open_view.borrow().clone();
+    if existing_view.is_some_and(|view| view.update(cx, |_, _| {}).is_ok()) {
+        cx.activate(true);
+        return;
+    }
+
+    open_main_window(cx, open_view, async_cx, pending_paths);
+}
+
 fn main() {
     let open_view: Rc<RefCell<Option<gpui::WeakEntity<app::Mieli>>>> = Rc::new(RefCell::new(None));
     let async_cx: Rc<RefCell<Option<gpui::AsyncApp>>> = Rc::new(RefCell::new(None));
@@ -113,7 +128,7 @@ fn main() {
     let reopen_pending_paths = Rc::clone(&pending_paths);
     let quit_open_view = Rc::clone(&open_view);
     application.on_reopen(move |cx| {
-        open_main_window(
+        reopen_main_window(
             cx,
             &reopen_open_view,
             &reopen_async_cx,
@@ -129,6 +144,12 @@ fn main() {
         bezel::theme::appearance::init(bezel::theme::appearance::AppearanceMode::System, cx);
         editor::init(cx);
         actions::install(cx);
+        let menu_open_view = Rc::clone(&open_view);
+        let menu_async_cx = Rc::clone(&async_cx);
+        let menu_pending_paths = Rc::clone(&pending_paths);
+        cx.on_action(move |_: &actions::OpenWindow, cx| {
+            reopen_main_window(cx, &menu_open_view, &menu_async_cx, &menu_pending_paths);
+        });
         cx.on_action(move |_: &actions::Quit, cx| {
             app::handle_global_quit(quit_open_view.borrow().clone(), cx);
         });
@@ -160,6 +181,16 @@ mod tests {
 
         assert!(source.contains("cx.on_action"));
         assert!(source.contains("actions::Quit"));
+    }
+
+    #[test]
+    fn window_action_reopens_or_activates_the_main_window() {
+        let source = include_str!("main.rs");
+        let action = ["actions::Open", "Window"].concat();
+        let helper = ["reopen_", "main_window"].concat();
+
+        assert!(source.contains(&action));
+        assert!(source.contains(&helper));
     }
 
     #[test]

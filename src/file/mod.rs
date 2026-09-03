@@ -68,7 +68,7 @@ impl LocalizedMessage for FileError {
         if matches!(language, Language::English) {
             if let Self::PermissionDenied { path, operation } = self {
                 return format!(
-                    "Could not {operation}: permission denied. Drag this file or folder onto the Mieli window to authorize access. Path: {}",
+                    "Could not {operation}: permission denied. Use Open to choose the file or folder and grant access. Path: {}",
                     path.display()
                 );
             }
@@ -92,7 +92,7 @@ impl LocalizedMessage for FileError {
             ),
             Self::PermissionDenied { path, operation } => {
                 format!(
-                    "无法{}：没有权限。请将该文件或文件夹拖入 Mieli 窗口以授权访问。路径：{}",
+                    "无法{}：没有权限。请使用“打开”选择该文件或文件夹以授予访问权限。路径：{}",
                     language.operation_label(operation),
                     path.display()
                 )
@@ -129,7 +129,7 @@ impl fmt::Display for FileError {
             }
             Self::PermissionDenied { path, operation } => write!(
                 f,
-                "Could not {operation}: permission denied. Drag this file or folder onto the Mieli window to authorize access. Path: {}",
+                "Could not {operation}: permission denied. Use Open to choose the file or folder and grant access. Path: {}",
                 path.display()
             ),
             Self::Io {
@@ -148,13 +148,17 @@ mod tests {
     use super::{FileError, Language, LocalizedMessage};
 
     #[test]
-    fn scan_permission_message_includes_drag_authorization_hint() {
+    fn permission_message_directs_users_to_file_open_without_dragging() {
         let error = FileError::PermissionDenied {
             path: "/private/notes".into(),
             operation: "scan",
         };
 
-        assert!(error.localized_message(Language::English).contains("Drag"));
-        assert!(error.localized_message(Language::Chinese).contains("拖入"));
+        let english = error.localized_message(Language::English);
+        let chinese = error.localized_message(Language::Chinese);
+        assert!(english.contains("Use Open"));
+        assert!(chinese.contains("使用“打开”"));
+        assert!(!english.contains("Drag"));
+        assert!(!chinese.contains("拖"));
     }
 }
