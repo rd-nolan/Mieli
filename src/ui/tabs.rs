@@ -20,12 +20,12 @@ use super::{
 
 pub fn render(
     view: &mut Mieli,
-    _window: &mut Window,
+    window: &mut Window,
     theme: &Theme,
     cx: &mut Context<Mieli>,
 ) -> bezel::gpui::Stateful<bezel::gpui::Div> {
     let tab_strip = tab_strip(view, theme, cx);
-    let editor = editor_surface(view, theme, cx);
+    let editor = editor_surface(view, window, theme, cx);
     let path_bar = path_bar(view, theme, cx);
     div()
         .id("mieli-main-pane")
@@ -167,8 +167,9 @@ fn tab_strip(
                 Tooltip::text(language.text(TextKey::NewDocumentTooltip), window, cx)
             })
             .hover(|style| style.bg(theme.element_hover).text_color(theme.text))
-            .on_click(cx.listener(|this, _, _, cx| {
-                this.new_tab(cx);
+            .on_click(cx.listener(|this, _, window, cx| {
+                let tab_id = this.new_tab(cx);
+                this.focus_tab(tab_id, window, cx);
             }))
             .child(
                 icon(icons::PLUS)
@@ -180,6 +181,7 @@ fn tab_strip(
 
 fn editor_surface(
     view: &mut Mieli,
+    window: &mut Window,
     theme: &Theme,
     cx: &mut Context<Mieli>,
 ) -> bezel::gpui::Stateful<bezel::gpui::Div> {
@@ -202,14 +204,17 @@ fn editor_surface(
             .child(language.text(TextKey::NoDocumentSelected));
     };
 
-    let empty_document = view
-        .active_tab()
-        .is_some_and(|tab| tab.path.as_os_str().is_empty() && tab.saved_source.is_empty());
+    let empty_document = view.active_tab().is_some_and(|tab| {
+        tab.path.as_os_str().is_empty() && tab.saved_source.is_empty() && !tab.dirty
+    });
 
     let empty_editor = editor.clone();
     let editor_content = if empty_document {
+        let editor_focused = editor.focus_handle(cx).is_focused(window);
+
         div()
             .id("mieli-empty-editor-hit-area")
+            .relative()
             .w_full()
             .h(px(600.0))
             .on_mouse_down(
@@ -219,6 +224,18 @@ fn editor_surface(
                 }),
             )
             .child(editor.cached(StyleRefinement::default().size_full()))
+            .when(editor_focused, |element| {
+                element.child(
+                    div()
+                        .id("mieli-empty-editor-caret")
+                        .absolute()
+                        .top(px(0.0))
+                        .left(px(22.0))
+                        .w(px(1.5))
+                        .h(px(22.0))
+                        .bg(theme.caret),
+                )
+            })
             .into_any_element()
     } else {
         editor.into_any_element()
@@ -325,7 +342,7 @@ fn path_bar(
         .relative()
         .bg(theme.surface);
 
-    if !view.state.sidebar_visible {
+    if view.state.workspace_root.is_some() && !view.state.sidebar_visible {
         bar = bar.child(sidebar::render_sidebar_toggle(view, theme, cx));
     }
 

@@ -81,19 +81,20 @@ fn light_palette(theme: &mut Theme) {
 }
 
 fn dark_palette(theme: &mut Theme) {
-    // Warm charcoal surfaces preserve the same hierarchy after inversion.
-    let background = tone(0.083333, 0.041667, 0.094118); // #191817
-    let ink = tone(0.10, 0.12, 0.93); // #F1EFEB
-    let strong_ink = tone(0.10, 0.10, 0.95); // #F5F4F2
-    let body = tone(0.10, 0.03, 0.73); // #BEBBB6
-    let accessible_faint = tone(0.10, 0.02, 0.80); // #D1CECA
-    let metadata = tone(0.08, 0.03, 0.52); // #88837F
-    let keyline = tone(0.08, 0.04, 0.24); // #403D3A
-    let keyline_strong = tone(0.08, 0.05, 0.30); // #4F4C48
-    let surface = tone(0.08, 0.03, 0.14); // #252321
-    let raised = tone(0.08, 0.04, 0.18); // #2F2C2A
-    let blue = tone(0.63, 0.72, 0.68); // #738CE8
-    let green = tone(0.398148, 0.576000, 0.490196); // #35C56D
+    // Lift the charcoal base and soften the endpoints so long editing sessions
+    // keep hierarchy without the near-black/near-white glare of the old theme.
+    let background = tone(0.083333, 0.035, 0.15); // #282625
+    let ink = tone(0.10, 0.07, 0.86); // #DEDCD9
+    let strong_ink = tone(0.10, 0.06, 0.90); // #E7E6E4
+    let body = tone(0.10, 0.03, 0.70); // #B5B3B0
+    let accessible_faint = tone(0.10, 0.025, 0.78); // #C8C7C5
+    let metadata = tone(0.08, 0.025, 0.56); // #928F8C
+    let keyline = tone(0.08, 0.035, 0.30); // #4F4C4A
+    let keyline_strong = tone(0.08, 0.04, 0.36); // #5F5C58
+    let surface = tone(0.08, 0.025, 0.20); // #343332
+    let raised = tone(0.08, 0.035, 0.25); // #42403E
+    let blue = tone(0.63, 0.54, 0.66); // #798ED7
+    let green = tone(0.398148, 0.45, 0.50); // #46B973
 
     theme.bg = background;
     theme.surface = surface;
@@ -101,7 +102,7 @@ fn dark_palette(theme: &mut Theme) {
     theme.surface_card = surface;
     theme.surface_dialog = surface;
     theme.surface_overlay = raised;
-    theme.surface_raised_hover = tone(0.055556, 0.040000, 0.195000);
+    theme.surface_raised_hover = tone(0.055556, 0.04, 0.28); // #4A4645
 
     theme.element_hover = wash(strong_ink, 0.045);
     theme.element_active = wash(strong_ink, 0.095);
@@ -117,14 +118,40 @@ fn dark_palette(theme: &mut Theme) {
 
     theme.accent = blue;
     theme.accent_strong = blue;
-    theme.on_accent = strong_ink;
+    // The dark accent is bright enough to carry dark text with a stronger
+    // contrast than near-white text on a prominent button.
+    theme.on_accent = background;
     theme.success = green;
     theme.success_muted = wash(green, 0.22);
 
     theme.input_bg = surface;
-    theme.selection = wash(blue, 0.30);
-    theme.cursor = wash(blue, 0.78);
+    theme.selection = wash(blue, 0.24);
+    theme.cursor = wash(blue, 0.72);
     theme.caret = strong_ink;
     theme.code_text = strong_ink;
-    theme.code_wash = wash(strong_ink, 0.08);
+    theme.code_wash = wash(strong_ink, 0.06);
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn dark_palette_uses_soft_charcoal_surfaces() {
+        let dark = super::palette(bezel::theme::Appearance::Dark);
+
+        assert!(dark.bg.l >= 0.12);
+        assert!(dark.surface.l > dark.bg.l);
+        assert!(dark.surface_raised.l > dark.surface.l);
+        assert!(dark.text.l < 0.92);
+        assert!(dark.solid.l < 0.94);
+        assert!(dark.accent.s <= 0.58);
+        assert!(dark.selection.a <= 0.25);
+    }
+
+    #[test]
+    fn dark_accent_uses_a_dark_button_foreground() {
+        let source = include_str!("theme.rs");
+        let assignment = ["theme.on_accent = ", "background;"].concat();
+
+        assert!(source.contains(&assignment));
+    }
 }

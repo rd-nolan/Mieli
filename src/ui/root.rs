@@ -166,7 +166,7 @@ pub fn render(
 
     root = root.child(body);
 
-    if !view.state.sidebar_visible && !has_tabs {
+    if view.state.workspace_root.is_some() && !view.state.sidebar_visible && !has_tabs {
         root = root.child(
             div()
                 .id("mieli-editor-actions-bar")
@@ -194,15 +194,20 @@ pub fn render(
         let status_color = if is_success {
             theme.success
         } else {
-            theme.warning
+            theme.warning_muted
         };
         let status_border = if is_success {
             theme.border
         } else {
-            theme.warning
+            theme.warning.opacity(0.2)
         };
         let status_background = if is_success {
             theme.surface_card
+        } else {
+            theme.warning.opacity(0.06)
+        };
+        let status_foreground = if is_success {
+            theme.text
         } else {
             theme.warning_muted
         };
@@ -223,7 +228,7 @@ pub fn render(
             .border_color(status_border)
             .bg(status_background)
             .shadow_sm()
-            .text_color(theme.text)
+            .text_color(status_foreground)
             .child(
                 icon(status_icon)
                     .size(toast_icon_size)
@@ -266,7 +271,7 @@ pub fn render(
                     .child(
                         icon(icons::CLOSE)
                             .size(px(13.0))
-                            .text_color(theme.text_muted),
+                            .text_color(status_foreground),
                     ),
             );
         }

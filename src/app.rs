@@ -11,7 +11,7 @@ use std::{
     time::Duration,
 };
 
-use gpui::AppContext as _;
+use gpui::Focusable;
 use gpui::prelude::*;
 
 use crate::{
@@ -95,14 +95,10 @@ fn markdown_destination(path: &Path) -> PathBuf {
     PathBuf::from(destination)
 }
 
-fn workspace_root_for_path(path: &Path, current_workspace: Option<&Path>) -> Option<PathBuf> {
-    if path.is_dir() {
-        Some(path.to_path_buf())
-    } else if current_workspace.is_some_and(|root| path.starts_with(root)) {
-        None
-    } else {
-        path.parent().map(Path::to_path_buf)
-    }
+fn workspace_root_for_path(path: &Path) -> Option<PathBuf> {
+    // A file selected through Finder grants access to that file, not to its
+    // parent directory. Only an explicitly selected directory is a workspace.
+    path.is_dir().then(|| path.to_path_buf())
 }
 
 fn apply_save_as_identity(path: &mut PathBuf, title: &mut String, destination: PathBuf) {
@@ -724,6 +720,27 @@ impl Mieli {
         cx.notify();
     }
 
+    pub fn focus_tab(
+        &self,
+        tab_id: TabId,
+        window: &mut gpui::Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let Some(editor) = self
+            .state
+            .tabs
+            .iter()
+            .find(|tab| tab.id == tab_id)
+            .map(|tab| tab.editor.clone())
+        else {
+            return;
+        };
+        let focus_handle = editor.focus_handle(cx);
+        window.defer(cx, move |window, cx| {
+            focus_handle.focus(window, cx);
+        });
+    }
+
     pub fn new_tab(&mut self, cx: &mut gpui::Context<Self>) -> TabId {
         self.cancel_pending_workspace_auto_open();
         let tab_id = self.open_tab_paths.allocate();
@@ -847,14 +864,8 @@ impl Mieli {
         cx: &mut gpui::Context<Self>,
     ) -> Result<(), LifecycleError> {
         let canonical = self.file_result(canonicalize_path(&path))?;
-        if canonical.is_dir() {
-            return self.open_folder(canonical, cx);
-        }
-
-        if let Some(parent) =
-            workspace_root_for_path(&canonical, self.state.workspace_root.as_deref())
-        {
-            self.open_folder_with_options(parent, false, cx)?;
+        if let Some(root) = workspace_root_for_path(&canonical) {
+            return self.open_folder(root, cx);
         }
         self.open_file(canonical, cx).map(|_| ())
     }
@@ -1047,6 +1058,12 @@ impl Mieli {
         let Some(tab_id) = self.state.active_tab else {
             return self.lifecycle_failure(LifecycleError::NoActiveTab);
         };
+        let Some(index) = self.tab_index(tab_id) else {
+            return self.lifecycle_failure(LifecycleError::MissingTab(tab_id));
+        };
+        if self.state.tabs[index].path.as_os_str().is_empty() {
+            return self.save_active_as(cx);
+        }
         self.save_tab(tab_id, cx)
     }
 
@@ -1447,10 +1464,11 @@ impl Mieli {
     fn on_new_file(
         &mut self,
         _: &actions::NewFile,
-        _: &mut gpui::Window,
+        window: &mut gpui::Window,
         cx: &mut gpui::Context<Self>,
     ) {
-        self.new_tab(cx);
+        let tab_id = self.new_tab(cx);
+        self.focus_tab(tab_id, window, cx);
     }
 
     fn on_save(&mut self, _: &actions::Save, _: &mut gpui::Window, cx: &mut gpui::Context<Self>) {
@@ -2182,6 +2200,42 @@ mod tests {
     }
 
     #[test]
+    fn tab_plus_focuses_the_new_editor() {
+        let source = include_str!("ui/tabs.rs");
+        let app_source = include_str!("app.rs");
+        let deferred_focus = ["window.", "defer(cx, move |window, cx|"].concat();
+
+        assert!(source.contains("let tab_id = this.new_tab(cx);"));
+        assert!(source.contains("this.focus_tab(tab_id, window, cx);"));
+        assert!(app_source.contains(&deferred_focus));
+    }
+
+    #[test]
+    fn empty_editor_has_a_visible_caret() {
+        let source = include_str!("ui/tabs.rs");
+        let caret_id = ["mieli-empty-editor-", "caret"].concat();
+        let focus_binding = [
+            "let editor_",
+            "focused = editor.focus_handle(cx).is_focused(window);",
+        ]
+        .concat();
+        let caret_color = [".bg(", "theme.caret)"].concat();
+
+        assert!(source.contains(&caret_id));
+        assert!(source.contains(&focus_binding));
+        assert!(source.contains(&caret_color));
+    }
+
+    #[test]
+    fn saving_an_untitled_tab_opens_save_as() {
+        let source = include_str!("app.rs");
+
+        assert!(source.contains(
+            "if self.state.tabs[index].path.as_os_str().is_empty() {\n            return self.save_active_as(cx);\n        }"
+        ));
+    }
+
+    #[test]
     fn tab_navigation_wraps_and_uses_the_directional_edge_without_an_active_tab() {
         let tabs = [TabId(10), TabId(20), TabId(30)];
 
@@ -2224,7 +2278,7 @@ mod tests {
     }
 
     #[test]
-    fn workspace_root_for_path_keeps_directories_and_uses_file_parents() {
+    fn standalone_selected_files_do_not_require_parent_workspace_scans() {
         let directory = TestDirectory::new();
         let file = directory.path().join("README.md");
         fs::write(&file, "# Mieli").unwrap();
@@ -2233,13 +2287,10 @@ mod tests {
         let canonical_file = canonicalize_path(&file).unwrap();
 
         assert_eq!(
-            workspace_root_for_path(&canonical_directory, None),
+            workspace_root_for_path(&canonical_directory),
             Some(canonical_directory)
         );
-        assert_eq!(
-            workspace_root_for_path(&canonical_file, None),
-            canonical_file.parent().map(Path::to_path_buf)
-        );
+        assert_eq!(workspace_root_for_path(&canonical_file), None);
     }
 
     #[test]
@@ -2248,11 +2299,8 @@ mod tests {
         let nested_file = root.join("docs/README.md");
         let outside_file = Path::new("/other/README.md");
 
-        assert_eq!(workspace_root_for_path(&nested_file, Some(root)), None);
-        assert_eq!(
-            workspace_root_for_path(outside_file, Some(root)),
-            Some(PathBuf::from("/other"))
-        );
+        assert_eq!(workspace_root_for_path(&nested_file), None);
+        assert_eq!(workspace_root_for_path(outside_file), None);
     }
 
     #[test]
@@ -3034,6 +3082,28 @@ mod tests {
             &[],
             &FileSystemEvent::Created(PathBuf::from("/other/new.md")),
         ));
+    }
+
+    #[test]
+    fn error_notifications_use_warning_foreground_on_translucent_background() {
+        let source = include_str!("ui/root.rs");
+
+        assert!(source.contains("theme.warning.opacity(0.06)"));
+        assert!(source.contains(".text_color(status_foreground)"));
+    }
+
+    #[test]
+    fn sidebar_toggle_is_only_rendered_when_a_workspace_is_open() {
+        let root_source = include_str!("ui/root.rs");
+        let tabs_source = include_str!("ui/tabs.rs");
+
+        assert!(root_source.contains(
+            "if view.state.workspace_root.is_some() && !view.state.sidebar_visible && !has_tabs"
+        ));
+        assert!(
+            tabs_source
+                .contains("if view.state.workspace_root.is_some() && !view.state.sidebar_visible")
+        );
     }
 
     struct TestDirectory {
